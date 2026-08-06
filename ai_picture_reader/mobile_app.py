@@ -150,7 +150,7 @@ def generate_stripe_checkout(uid):
         payment_method_types=['card'],
         line_items=[{'price': stripe_price_id, 'quantity': 1}],
         mode='subscription',
-        success_url='https://streamlit.app{CHECKOUT_SESSION_ID}',
+        success_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/?stripe_session_id={CHECKOUT_SESSION_ID}',
         cancel_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/',
         client_reference_id=uid
     )
