@@ -24,37 +24,67 @@ client = genai.Client()
 @st.cache_data(show_spinner=False)
 def generate_solution_and_audio(image_bytes_hash, image_bytes):
     """
-    Processes image via Gemini Flash, then runs local text-to-speech conversion.
-    Returns both clean markdown text and raw audio bytes.
+    Processes image via Gemini Flash, splits the output into visual and spoken payloads,
+    and converts the filtered text to audio.
     """
-    
-    
-    # Stable multimodal cloud call
+    # Stable multimodal cloud call using global client
     response = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=[
             genai.types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'),
             """
             You are a premium, direct technical problem solver. 
-            Analyze the question, formula, or code bug visible in this image.
-            Provide a clear, brief, incremental step-by-step solution path. 
-            Keep it highly concise so it reads beautifully when spoken aloud.
+            Analyze the question, formula, or problem visible in this image.
+            
+            Provide your response in EXACTLY the following format:
+            ---VISUAL_START---
+            [Provide a clear, brief, incremental step-by-step solution path using markdown format here.]
+            ---VISUAL_END---
+            ---SPOKEN_START---
+            [Provide the exact same solution, but written exclusively for an audio reader. 
+            Use simple English sentences. Spell out words instead of symbols. No math symbols, no equations, no markdown, no code blocks.]
+            ---SPOKEN_END---
             """
         ]
     )
     
-    text_content = response.text
+    raw_response = response.text if response.text else ""
     
-    # Clean up formatting symbols so the audio reader doesn't say "hash hash" out loud
-    spoken_text = text_content.replace("#", "").replace("*", "").replace("`", "")
+    # 1. Parse and extract the two distinct payloads
+    if "---VISUAL_START---" in raw_response and "---VISUAL_END---" in raw_response:
+        text_content = raw_response.split("---VISUAL_START---")[1].split("---VISUAL_END---")[0].strip()
+    else:
+        text_content = raw_response  # Fallback if parsing fails
+        
+    if "---SPOKEN_START---" in raw_response and "---SPOKEN_END---" in raw_response:
+        spoken_text = raw_response.split("---SPOKEN_START---")[1].split("---SPOKEN_END---")[0].strip()
+    else:
+        spoken_text = text_content  # Fallback if parsing fails
+
+    # 2. Heavy-Duty Character Filter for the TTS Audio Engine
+    # Force replace common culprits that break gTTS
+    spoken_text = spoken_text.replace("#", "").replace("*", "").replace("`", "")
+    spoken_text = spoken_text.replace("→", " leads to ").replace("=>", " implies ")
+    spoken_text = spoken_text.replace("=", " equals ").replace("+", " plus ")
+    spoken_text = spoken_text.replace("-", " minus ").replace("/", " divided by ")
     
-    # Convert text to audio bytes entirely in-memory using an IO buffer stream
+    # Strip any remaining non-ASCII characters or strange math symbols entirely
+    spoken_text = "".join(c for c in spoken_text if ord(c) < 128)
+    
+    # Flatten spaces and line breaks for natural speech delivery
+    spoken_text = " ".join(spoken_text.split())
+    
+    if not spoken_text.strip():
+        spoken_text = "Analysis complete. Please see the screen for details."
+
+    # 3. Convert clean text to audio bytes in-memory
     tts = gTTS(text=spoken_text, lang='en', tld='com')
     audio_buffer = io.BytesIO()
     tts.write_to_fp(audio_buffer)
     audio_bytes = audio_buffer.getvalue()
     
     return text_content, audio_bytes
+
 
 # 3. Native Mobile Camera Input Widget
 captured_image = st.camera_input(" ")
