@@ -1,33 +1,238 @@
 #!/usr/bin/env python3
 import hashlib
 import io
+import os
 import streamlit as st
+import stripe
 from google import genai
 from dotenv import load_dotenv
 from gtts import gTTS
+from supabase import create_client, Client
 
-# 1. Page Configuration for Clean Mobile Display
-st.set_page_config(
-    page_title="AI Talk & Solve Scanner", 
-    page_icon="🔊", 
-    layout="centered"
+# Load environment variables securely from .env file
+load_dotenv()
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_KEY")
+stripe_secret_key = os.environ.get("STRIPE_SANDBOX_API_KEY")
+stripe_price_id = os.environ.get("STRIPE_PRICE_ID")
+
+# Initialize the Stripe SDK key
+stripe.api_key = stripe_secret_key
+
+# Safely initialize the Supabase client to prevent connection overloads
+@st.cache_resource
+def get_supabase() -> Client:
+    return create_client(supabase_url, supabase_key)
+
+supabase = get_supabase()
+
+# ==========================================
+# 🔄 INBOUND PASSWORD RESET INTERCEPTOR
+# ==========================================
+url_params = st.query_params
+if "type" in url_params and url_params["type"] == "recovery":
+    st.title("🔄 Choose a New Password")
+    new_password = st.text_input("Type your new secure password:", type="password")
+    confirm_password = st.text_input("Confirm your new password:", type="password")
+    
+    if st.button("Update Password and Log In", use_container_width=True):
+        if len(new_password) < 6:
+            st.warning("Password must be at least 6 characters long.")
+        elif new_password != confirm_password:
+            st.error("Passwords do not match.")
+        else:
+            try:
+                supabase.auth.update_user({"password": new_password})
+                st.success("Password updated successfully!")
+                st.query_params.clear()
+                if "reset_mode" in st.session_state:
+                    st.session_state.reset_mode = False
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to update password: {e}")
+    st.stop()
+
+# ==========================================
+# 📱 STREAMLIT PAGE CONFIG & MOBILE STYLING
+# ==========================================
+st.set_page_config(page_title="AI Talk & Solve Scanner", page_icon="🔊", layout="centered")
+st.markdown(
+    """
+    <style>
+    .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
+    div[data-testid="stCameraInput"] { width: 100% !important; }
+    div[data-testid="stCameraInput"] video { width: 100% !important; height: auto !important; }
+    div[data-testid="stCameraInput"] img { width: 100% !important; height: auto !important; }
+    </style>
+    """,
+    unsafe_allow_html=True
 )
 
 st.title("🔊 Talk & Solve Scanner")
+
+# ==========================================
+# 🛡️ GATEWAY 1: SUPABASE AUTHENTICATION
+# ==========================================
+if "user_session" not in st.session_state:
+    st.session_state.user_session = None
+
+if st.session_state.user_session is None:
+    st.write("Please sign in or create an account to unlock the Scanner.")
+    tab1, tab2 = st.tabs(["🔒 Sign In", "📝 Create Account"])
+    
+    with tab1:
+        if "reset_mode" not in st.session_state:
+            st.session_state.reset_mode = False
+
+        if not st.session_state.reset_mode:
+            login_email = st.text_input("Email Address", key="login_email")
+            login_password = st.text_input("Password", type="password", key="login_password")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Log In", use_container_width=True):
+                    try:
+                        response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
+                        st.session_state.user_session = response.session
+                        st.success("Access Granted!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Login Failed: {e}")
+            with col2:
+                if st.button("Forgot Password?", use_container_width=True):
+                    st.session_state.reset_mode = True
+                    st.rerun()
+        else:
+            st.subheader("🔑 Reset Your Password")
+            reset_email = st.text_input("Enter your account email", key="reset_email")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Send Reset Link", use_container_width=True):
+                    try:
+                        supabase.auth.reset_password_for_email(reset_email)
+                        st.success("Reset link sent! Please check your email inbox.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+            with col2:
+                if st.button("Back to Login", use_container_width=True):
+                    st.session_state.reset_mode = False
+                    st.rerun()
+                
+    with tab2:
+        reg_email = st.text_input("Email Address", key="reg_email")
+        reg_password = st.text_input("Password", type="password", key="reg_password")
+        if st.button("Sign Up", use_container_width=True):
+            try:
+                supabase.auth.sign_up({"email": reg_email, "password": reg_password})
+                st.success("Account created successfully! Check your email inbox for a confirmation link, then Sign In.")
+            except Exception as e:
+                st.error(f"Registration Error: {e}")
+    st.stop()
+
+# Track active user properties globally below this boundary
+user_id = st.session_state.user_session.user.id
+
+# ==========================================
+# 💳 GATEWAY 2: STRIPE PAYWALL GATEKEEPER
+# ==========================================
+def check_active_subscription(uid):
+    """Queries the profiles table to see if user has access"""
+    try:
+        res = supabase.table("profiles").select("is_subscribed").eq("id", uid).maybe_single().execute()
+        if res.data and res.data.get("is_subscribed") == True:
+            return True
+    except Exception:
+        pass
+    return False
+
+def generate_stripe_checkout(uid):
+    """Generates a secure checkout link custom mapped to the user ID"""
+    session = stripe.checkout.Session.create(
+        payment_method_types=['card'],
+        line_items=[{'price': stripe_price_id, 'quantity': 1}],
+        mode='subscription',
+        success_url='http://localhost:8501/?stripe_session_id={CHECKOUT_SESSION_ID}',
+        cancel_url='http://localhost:8501/',
+        client_reference_id=uid
+    )
+    return session.url
+
+# Read active payment metadata state
+is_premium_user = check_active_subscription(user_id)
+
+# Intercept inbound payment tokens from Stripe
+if "stripe_session_id" in url_params and not is_premium_user:
+    with st.spinner("Verifying transaction credentials..."):
+        try:
+            stripe_session = stripe.checkout.Session.retrieve(url_params["stripe_session_id"])
+            if stripe_session.payment_status == "paid":
+                cust_id = stripe_session.customer
+                
+                # Record both active premium clearance and the Customer ID in your profile row
+                supabase.table("profiles").upsert({
+                    "id": user_id, 
+                    "is_subscribed": True,
+                    "stripe_customer_id": cust_id
+                }).execute()
+                
+                st.success("Premium account confirmed!")
+                st.query_params.clear() 
+                st.rerun()
+        except Exception as e:
+            st.error(f"Transaction confirmation fault: {e}")
+
+# If they aren't premium, lock down the camera widget and display the pricing link
+if not is_premium_user:
+    st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
+    checkout_url = generate_stripe_checkout(user_id)
+    st.link_button("🎟️ Upgrade to Premium Now", checkout_url, use_container_width=True)
+    
+    if st.sidebar.button("Log Out", use_container_width=True):
+        supabase.auth.sign_out()
+        st.session_state.user_session = None
+        st.rerun()
+    st.stop()
+
+# ==========================================
+# 🚀 CORE APPLICATION PIPELINE (PREMIUM USERS ONLY)
+# ==========================================
+def get_user_billing_portal_url(uid):
+    """Fetches customer ID from Supabase and requests a short-lived Stripe portal session link"""
+    try:
+        res = supabase.table("profiles").select("stripe_customer_id").eq("id", uid).maybe_single().execute()
+        if res.data and res.data.get("stripe_customer_id"):
+            cust_id = res.data["stripe_customer_id"]
+            portal_session = stripe.billing_portal.Session.create(
+                customer=cust_id,
+                return_url='http://localhost:8501/'
+            )
+            return portal_session.url
+    except Exception as e:
+        pass
+    return None
+
+st.sidebar.subheader("Premium Account Active")
+st.sidebar.text(f"Logged in: {st.session_state.user_session.user.email}")
+
+# Generate the portal url reactively
+management_url = get_user_billing_portal_url(user_id)
+if management_url:
+    st.sidebar.link_button("💳 Manage Subscription", management_url, use_container_width=True)
+else:
+    st.sidebar.caption("Billing sync pending next transaction cycle.")
+
+if st.sidebar.button("Log Out", use_container_width=True):
+    supabase.auth.sign_out()
+    st.session_state.user_session = None
+    st.rerun()
+    
 st.write("Snap a photo to instantly see and hear the technical solution.")
 
-# Load your environment variables securely from the .env file
-load_dotenv()
-# Initialize the client (automatically inherits GEMINI_API_KEY from .env)
+# Initialize the Gemini client (automatically inherits GEMINI_API_KEY from .env)
 client = genai.Client()
+
 # 2. Optimized Pipeline with Smart Image Caching
 @st.cache_data(show_spinner=False)
 def generate_solution_and_audio(image_bytes_hash, image_bytes):
-    """
-    Processes image via Gemini Flash, splits the output into visual and spoken payloads,
-    and converts the filtered text to audio.
-    """
-    # Stable multimodal cloud call using global client
     response = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=[
@@ -50,34 +255,27 @@ def generate_solution_and_audio(image_bytes_hash, image_bytes):
     
     raw_response = response.text if response.text else ""
     
-    # 1. Parse and extract the two distinct payloads
     if "---VISUAL_START---" in raw_response and "---VISUAL_END---" in raw_response:
         text_content = raw_response.split("---VISUAL_START---")[1].split("---VISUAL_END---")[0].strip()
     else:
-        text_content = raw_response  # Fallback if parsing fails
+        text_content = raw_response
         
     if "---SPOKEN_START---" in raw_response and "---SPOKEN_END---" in raw_response:
         spoken_text = raw_response.split("---SPOKEN_START---")[1].split("---SPOKEN_END---")[0].strip()
     else:
-        spoken_text = text_content  # Fallback if parsing fails
+        spoken_text = text_content
 
-    # 2. Heavy-Duty Character Filter for the TTS Audio Engine
-    # Force replace common culprits that break gTTS
     spoken_text = spoken_text.replace("#", "").replace("*", "").replace("`", "")
     spoken_text = spoken_text.replace("→", " leads to ").replace("=>", " implies ")
     spoken_text = spoken_text.replace("=", " equals ").replace("+", " plus ")
     spoken_text = spoken_text.replace("-", " minus ").replace("/", " divided by ")
     
-    # Strip any remaining non-ASCII characters or strange math symbols entirely
     spoken_text = "".join(c for c in spoken_text if ord(c) < 128)
-    
-    # Flatten spaces and line breaks for natural speech delivery
     spoken_text = " ".join(spoken_text.split())
     
     if not spoken_text.strip():
         spoken_text = "Analysis complete. Please see the screen for details."
 
-    # 3. Convert clean text to audio bytes in-memory
     tts = gTTS(text=spoken_text, lang='en', tld='com')
     audio_buffer = io.BytesIO()
     tts.write_to_fp(audio_buffer)
@@ -85,29 +283,23 @@ def generate_solution_and_audio(image_bytes_hash, image_bytes):
     
     return text_content, audio_bytes
 
-
 # 3. Native Mobile Camera Input Widget
 captured_image = st.camera_input(" ")
 
 # 4. Trigger Execution Pipeline on Capture
 if captured_image is not None:
     raw_bytes = captured_image.getvalue()
-    
-    # Unique signature prevents duplicate billing costs on accidental page re-runs
     bytes_hash = hashlib.md5(raw_bytes).hexdigest()
     
     with st.spinner("Analyzing problem parameters and rendering vocal tracks..."):
         try:
             solution_text, solution_audio = generate_solution_and_audio(bytes_hash, raw_bytes)
-            
             st.markdown("---")
             
-            # 5. Render Native Audio Widget at the top for immediate access
             if solution_audio:
                 st.subheader("🔊 Listen to Solution:")
                 st.audio(solution_audio, format="audio/mp3")
             
-            # 6. Render Structured Text Sheet below it
             st.subheader("📝 Visual Text Breakdown:")
             st.markdown(solution_text)
             
