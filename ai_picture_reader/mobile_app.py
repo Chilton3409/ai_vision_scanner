@@ -203,7 +203,7 @@ def get_user_billing_portal_url(uid):
             cust_id = res.data["stripe_customer_id"]
             portal_session = stripe.billing_portal.Session.create(
                 customer=cust_id,
-                return_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/ '
+                return_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/'
             )
             return portal_session.url
     except Exception as e:
