@@ -6,6 +6,19 @@ import streamlit as st
 import stripe
 from google import genai
 from dotenv import load_dotenv
+
+from supabase import create_client, Client
+from streamlit_local_storage import LocalStorage
+#!/usr/bin/env python3
+import io
+import os
+import time
+import stripe
+import streamlit as st
+from dotenv import load_dotenv
+
+from google import genai
+from google.genai import types
 from gtts import gTTS
 from supabase import create_client, Client
 
@@ -25,37 +38,12 @@ def get_supabase() -> Client:
     return create_client(supabase_url, supabase_key)
 
 supabase = get_supabase()
-
-# ==========================================
-# 🔄 INBOUND PASSWORD RESET INTERCEPTOR
-# ==========================================
 url_params = st.query_params
-if "type" in url_params and url_params["type"] == "recovery":
-    st.title("🔄 Choose a New Password")
-    new_password = st.text_input("Type your new secure password:", type="password")
-    confirm_password = st.text_input("Confirm your new password:", type="password")
-    
-    if st.button("Update Password and Log In", use_container_width=True):
-        if len(new_password) < 6:
-            st.warning("Password must be at least 6 characters long.")
-        elif new_password != confirm_password:
-            st.error("Passwords do not match.")
-        else:
-            try:
-                supabase.auth.update_user({"password": new_password})
-                st.success("Password updated successfully!")
-                st.query_params.clear()
-                if "reset_mode" in st.session_state:
-                    st.session_state.reset_mode = False
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to update password: {e}")
-    st.stop()
 
 # ==========================================
 # 📱 STREAMLIT PAGE CONFIG & MOBILE STYLING
 # ==========================================
-st.set_page_config(page_title="AI Talk & Solve Scanner", page_icon="🔊", layout="centered")
+st.set_page_config(page_title="Point, shoot, listen", page_icon="🔊", layout="centered")
 st.markdown(
     """
     <style>
@@ -68,132 +56,207 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("🔊 Talk & Solve Scanner")
+st.title("🔊 Point, shoot, listen")
 
 # ==========================================
-# 🛡️ GATEWAY 1: SUPABASE AUTHENTICATION
+# 🆕 TRACK ANONYMOUS SESSIONS (FREE TRIAL)
 # ==========================================
-if "user_session" not in st.session_state:
-    st.session_state.user_session = None
+local_storage = LocalStorage()
+ #👇 PASTE THIS LINE TEMPORARILY TO WIPE THE BAD DATA
+#local_storage.setItem("anon_scan_count", 0)
+FREE_LIMIT = 0
+anon_scans = 0
+ip_hash = None
+FREE_LIMIT = 1
+anon_scans = 0
+ip_hash = None
 
-if st.session_state.user_session is None:
-    st.write("Please sign in or create an account to unlock the Scanner.")
+# ✅ INITIALIZE SESSION STATE KEYS TO PREVENT CRASHES
+if "anon_scans" not in st.session_state:
+    st.session_state.anon_scans = 0
+if "fallback_anon_scans" not in st.session_state:
+    st.session_state.fallback_anon_scans = 0
+
+# Check authentication status safely
+is_authenticated = "user_session" in st.session_state and st.session_state.user_session is not None
+
+# 🚀 STEP 3 FIX: Look for a forwarded network signature first, fall back to native context rules
+forwarded_header = st.context.headers.get("x-forwarded-for")
+if forwarded_header:
+    # Extract the true client origin address if sitting behind a web proxy cloud cluster
+    user_ip = forwarded_header.split(",")[0].strip()
+else:
+    user_ip = st.context.ip_address
+
+if not is_authenticated:
+    # Handle development fallbacks if running on your local machine
+    if user_ip is None or user_ip == "127.0.0.1" or user_ip == "::1" or user_ip == "DEV_LOCAL_MACHINE_IP":
+        user_ip = "DEV_LOCAL_MACHINE_IP"
+        
+    # Securely hash the IP so you aren't storing raw personal identifiers in plain text
+    ip_hash = hashlib.sha256(user_ip.encode()).hexdigest()
+    
+    # 🔒 SECURE REFRESH LOCK
+    try:
+        res = supabase.table("device_tracking").select("scan_count").eq("ip_hash", ip_hash).maybe_single().execute()
+        if res.data:
+            anon_scans = int(res.data.get("scan_count", 0))
+            # ✅ Sync state to the true database number immediately
+            st.session_state.anon_scans = anon_scans
+            st.session_state.fallback_anon_scans = anon_scans
+        else:
+            supabase.table("device_tracking").insert({"ip_hash": ip_hash, "scan_count": 0}).execute()
+            anon_scans = 0
+            st.session_state.anon_scans = 0
+            st.session_state.fallback_anon_scans = 0
+    except Exception:
+        anon_scans = st.session_state.get("fallback_anon_scans", 0)
+
+allow_anonymous_processing = anon_scans < FREE_LIMIT
+# Helper to clear stashed AI solutions during login transitions
+def clear_active_solution():
+    st.session_state.latest_solution_text = None
+    st.session_state.latest_solution_audio = None
+# ==========================================
+# 🔐 THE LOGIN GATEWAY (ONLY TRIGGERED AFTER 5 FREE SCANS)
+# ==========================================
+if not allow_anonymous_processing and not is_authenticated:
+    st.warning("⚠️ Free Limit Reached: Create a free account or sign in to continue using the scanner.")
+    
+    # Inbound password reset interceptor
+    if "type" in url_params and url_params["type"] == "recovery":
+        st.subheader("🔄 Choose a New Password")
+        new_password = st.text_input("Type your new secure password:", type="password")
+        confirm_password = st.text_input("Confirm your new password:", type="password")
+        
+        if st.button("Update Password and Log In", use_container_width=True):
+            if len(new_password) < 6:
+                st.warning("Password must be at least 6 characters long.")
+            elif new_password != confirm_password:
+                st.error("Passwords do not match.")
+            else:
+                try:
+                    supabase.auth.update_user({"password": new_password})
+                    st.success("Password updated successfully!")
+                    st.query_params.clear()
+                    clear_active_solution()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to update password: {e}")
+        st.stop()
+
     tab1, tab2 = st.tabs(["🔒 Sign In", "📝 Create Account"])
     
     with tab1:
-        if "reset_mode" not in st.session_state:
-            st.session_state.reset_mode = False
+        login_email = st.text_input("Email Address", key="login_email")
+        login_password = st.text_input("Password", type="password", key="login_password")
+        if st.button("Log In", use_container_width=True):
+            try:
+                response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
+                uid = response.user.id
+                
+                # 🔄 SYNC AT LOGIN: Fetch existing scans, merge them, and save
+                res = supabase.table("profiles").select("scan_count").eq("id", uid).maybe_single().execute()
+                if res.data:
+                    existing_db_scans = res.data.get("scan_count", 0)
+                    # Merge network tracking tokens with their formal account profile history
+                    new_total = existing_db_scans + anon_scans
+                    supabase.table("profiles").update({"scan_count": new_total}).eq("id", uid).execute()
+                
+                # Reset their anonymous IP tracker row back to zero since the history passed up safely
+                if ip_hash:
+                    supabase.table("device_tracking").update({"scan_count": 0}).eq("ip_hash", ip_hash).execute()
+                
+                # ✅ Fixed line break: Safely establish the active user session parameters
+                st.session_state.user_session = response.session
+                st.success("Access Granted!")
+                clear_active_solution()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Login Failed: {e}")
 
-        if not st.session_state.reset_mode:
-            login_email = st.text_input("Email Address", key="login_email")
-            login_password = st.text_input("Password", type="password", key="login_password")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Log In", use_container_width=True):
-                    try:
-                        response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
-                        st.session_state.user_session = response.session
-                        st.success("Access Granted!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Login Failed: {e}")
-            with col2:
-                if st.button("Forgot Password?", use_container_width=True):
-                    st.session_state.reset_mode = True
-                    st.rerun()
-        else:
-            st.subheader("🔑 Reset Your Password")
-            reset_email = st.text_input("Enter your account email", key="reset_email")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Send Reset Link", use_container_width=True):
-                    try:
-                        supabase.auth.reset_password_for_email(reset_email)
-                        st.success("Reset link sent! Please check your email inbox.")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-            with col2:
-                if st.button("Back to Login", use_container_width=True):
-                    st.session_state.reset_mode = False
-                    st.rerun()
                 
     with tab2:
         reg_email = st.text_input("Email Address", key="reg_email")
         reg_password = st.text_input("Password", type="password", key="reg_password")
         if st.button("Sign Up", use_container_width=True):
             try:
-                supabase.auth.sign_up({"email": reg_email, "password": reg_password})
+                # 🔄 UPGRADED REGISTRATION HOOK
+                # Passes the un-hackable server IP scan count straight into the account metadata
+                supabase.auth.sign_up({
+                    "email": reg_email, 
+                    "password": reg_password,
+                    "options": {
+                        "data": {
+                            "scan_count": anon_scans
+                        }
+                    }
+                })
+                
+                # ✅ FIX: Update the secure database server table instead of hackable cookies
+                if ip_hash:
+                    supabase.table("device_tracking").update({"scan_count": 0}).eq("ip_hash", ip_hash).execute()
+                
                 st.success("Account created successfully! Check your email inbox for a confirmation link, then Sign In.")
             except Exception as e:
                 st.error(f"Registration Error: {e}")
-    st.stop()
 
-# Track active user properties globally below this boundary
-user_id = st.session_state.user_session.user.id
 
 # ==========================================
-# 💳 GATEWAY 2: STRIPE PAYWALL GATEKEEPER
-# ==========================================
-def check_active_subscription(uid):
-    """Queries the profiles table to see if user has access"""
+is_premium_user = False
+db_scan_count = 0
+user_id = None
+
+if is_authenticated:
+    user_id = st.session_state.user_session.user.id
+    
     try:
-        res = supabase.table("profiles").select("is_subscribed").eq("id", uid).maybe_single().execute()
-        if res.data and res.data.get("is_subscribed") == True:
-            return True
+        # Pull un-hackable data records directly from your backend profile table
+        res = supabase.table("profiles").select("is_subscribed", "scan_count").eq("id", user_id).maybe_single().execute()
+        if res.data:
+            is_premium_user = res.data.get("is_subscribed", False)
+            db_scan_count = res.data.get("scan_count", 0)
     except Exception:
         pass
-    return False
 
-def generate_stripe_checkout(uid):
-    """Generates a secure checkout link custom mapped to the user ID"""
-    session = stripe.checkout.Session.create(
-        payment_method_types=['card'],
-        line_items=[{'price': stripe_price_id, 'quantity': 1}],
-        mode='subscription',
-        success_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/?stripe_session_id={CHECKOUT_SESSION_ID}',
-        cancel_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/',
-        client_reference_id=uid
-    )
-    return session.url
 
-# Read active payment metadata state
-is_premium_user = check_active_subscription(user_id)
+    # Intercept inbound payment tokens from Stripe
+    if "stripe_session_id" in url_params and not is_premium_user:
+        with st.spinner("Verifying transaction credentials..."):
+            try:
+                stripe_session = stripe.checkout.Session.retrieve(url_params["stripe_session_id"])
+                if stripe_session.payment_status == "paid":
+                    supabase.table("profiles").upsert({
+                        "id": user_id, 
+                        "is_subscribed": True,
+                        "stripe_customer_id": stripe_session.customer
+                    }).execute()
+                    st.success("Premium account confirmed!")
+                    st.query_params.clear() 
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Transaction confirmation fault: {e}")
 
-# Intercept inbound payment tokens from Stripe
-if "stripe_session_id" in url_params and not is_premium_user:
-    with st.spinner("Verifying transaction credentials..."):
-        try:
-            stripe_session = stripe.checkout.Session.retrieve(url_params["stripe_session_id"])
-            if stripe_session.payment_status == "paid":
-                cust_id = stripe_session.customer
-                
-                # Record both active premium clearance and the Customer ID in your profile row
-                supabase.table("profiles").upsert({
-                    "id": user_id, 
-                    "is_subscribed": True,
-                    "stripe_customer_id": cust_id
-                }).execute()
-                
-                st.success("Premium account confirmed!")
-                st.query_params.clear() 
-                st.rerun()
-        except Exception as e:
-            st.error(f"Transaction confirmation fault: {e}")
-
-# If they aren't premium, lock down the camera widget and display the pricing link
-if not is_premium_user:
-    st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
-    checkout_url = generate_stripe_checkout(user_id)
-    st.link_button("🎟️ Upgrade to Premium Now", checkout_url, use_container_width=True)
-    
-    if st.sidebar.button("Log Out", use_container_width=True):
-        supabase.auth.sign_out()
-        st.session_state.user_session = None
-        st.rerun()
-    st.stop()
+    # If logged in but not premium, block completely and present Stripe Checkout links
+    if not is_premium_user:
+        st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{'price': stripe_price_id, 'quantity': 1}],
+            mode='subscription',
+            success_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/?stripe_session_id={CHECKOUT_SESSION_ID}',
+            cancel_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/?stripe_session_id={CHECKOUT_SESSION_ID}',
+            client_reference_id=user_id
+        )
+        st.link_button("🎟️ Upgrade to Premium Now", session.url, use_container_width=True)
+        if st.sidebar.button("Log Out", use_container_width=True):
+            supabase.auth.sign_out()
+            st.session_state.user_session = None
+            st.rerun()
+        st.stop()
 
 # ==========================================
-# 🚀 CORE APPLICATION PIPELINE (PREMIUM USERS ONLY)
+# 🚀 RUNTIME SIDEBAR & DASHBOARD DISPLAY
 # ==========================================
 def get_user_billing_portal_url(uid):
     """Fetches customer ID from Supabase and requests a short-lived Stripe portal session link"""
@@ -210,28 +273,40 @@ def get_user_billing_portal_url(uid):
         pass
     return None
 
-st.sidebar.subheader("Premium Account Active")
-st.sidebar.text(f"Logged in: {st.session_state.user_session.user.email}")
+if is_premium_user:
+    st.sidebar.subheader("🌟 Premium Account Active")
+    st.sidebar.text(f"Logged in: {st.session_state.user_session.user.email}")
+    management_url = get_user_billing_portal_url(user_id)
+    if management_url:
+        st.sidebar.link_button("💳 Manage Subscription", management_url, use_container_width=True)
+        
+    # 🆕 RENDER PREMIUM HISTORY ACCORDION TIMELINE
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📜 Your Saved Scans History")
+    try:
+        history_res = supabase.table("scans").select("solution_text", "created_at").order("created_at", descending=True).execute()
+        if history_res.data:
+            for idx, item in enumerate(history_res.data):
+                # Format timestamps cleanly into a readable tag header
+                timestamp_string = item["created_at"][:10] + " " + item["created_at"][11:16]
+                
+                # Create dropdown expanders for each historical scan
+                with st.sidebar.expander(f"🔍 Scan ({timestamp_string})"):
+                    # Slice text preview or show the whole text entry
+                    st.write(item["solution_text"])
+        else:
+            st.sidebar.caption("No previous scans found yet. Take your first snapshot!")
+    except Exception:
+        pass
 
-# Generate the portal url reactively
-management_url = get_user_billing_portal_url(user_id)
-if management_url:
-    st.sidebar.link_button("💳 Manage Subscription", management_url, use_container_width=True)
-else:
-    st.sidebar.caption("Billing sync pending next transaction cycle.")
 
-if st.sidebar.button("Log Out", use_container_width=True):
-    supabase.auth.sign_out()
-    st.session_state.user_session = None
-    st.rerun()
-    
+# ==========================================
+# 🔮 ORIGINAL PIPELINE (YOUR ENGINE, KEEPING gTTS & SPLITTING LOGIC)
+# ==========================================
 st.write("Snap a photo to instantly see and hear the technical solution.")
-
-# Initialize the Gemini client (automatically inherits GEMINI_API_KEY from .env)
 client = genai.Client()
 
-# 2. Optimized Pipeline with Smart Image Caching
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=True)
 def generate_solution_and_audio(image_bytes_hash, image_bytes):
     response = client.models.generate_content(
         model='gemini-2.5-flash',
@@ -255,6 +330,7 @@ def generate_solution_and_audio(image_bytes_hash, image_bytes):
     
     raw_response = response.text if response.text else ""
     
+        # 🎯 Correct array indices added to extract text inside matching tag indicators
     if "---VISUAL_START---" in raw_response and "---VISUAL_END---" in raw_response:
         text_content = raw_response.split("---VISUAL_START---")[1].split("---VISUAL_END---")[0].strip()
     else:
@@ -264,6 +340,7 @@ def generate_solution_and_audio(image_bytes_hash, image_bytes):
         spoken_text = raw_response.split("---SPOKEN_START---")[1].split("---SPOKEN_END---")[0].strip()
     else:
         spoken_text = text_content
+
 
     spoken_text = spoken_text.replace("#", "").replace("*", "").replace("`", "")
     spoken_text = spoken_text.replace("→", " leads to ").replace("=>", " implies ")
@@ -283,8 +360,13 @@ def generate_solution_and_audio(image_bytes_hash, image_bytes):
     
     return text_content, audio_bytes
 
-# 3. Native Mobile Camera Input Widget
-captured_image = st.camera_input(" ")
+captured_image = st.camera_input(" ", key="main_camera_input")
+
+# Ensure state placeholders exist in memory
+if "latest_solution_text" not in st.session_state:
+    st.session_state.latest_solution_text = None
+if "latest_solution_audio" not in st.session_state:
+    st.session_state.latest_solution_audio = None
 
 # 4. Trigger Execution Pipeline on Capture
 if captured_image is not None:
@@ -293,15 +375,76 @@ if captured_image is not None:
     
     with st.spinner("Analyzing problem parameters and rendering vocal tracks..."):
         try:
+            # Execute processing core metrics
             solution_text, solution_audio = generate_solution_and_audio(bytes_hash, raw_bytes)
-            st.markdown("---")
             
-            if solution_audio:
-                st.subheader("🔊 Listen to Solution:")
-                st.audio(solution_audio, format="audio/mp3")
+            # 💾 STASH RESULTS IN MEMORY BEFORE RERUNNING
+            st.session_state.latest_solution_text = solution_text
+            st.session_state.latest_solution_audio = solution_audio
             
-            st.subheader("📝 Visual Text Breakdown:")
-            st.markdown(solution_text)
+            # 🔄 TRANSACTION AND UI RE-RENDER HOOK
+            if not is_authenticated and allow_anonymous_processing:
+                # Advance tracking metrics digits
+                anon_scans += 1
+                st.session_state.fallback_anon_scans = anon_scans
+                if ip_hash:
+                    supabase.table("device_tracking").update({"scan_count": anon_scans}).eq("ip_hash", ip_hash).execute()
+                if "main_camera_input" in st.session_state:
+                    del st.session_state["main_camera_input"]
+            
+            elif is_authenticated and not is_premium_user:
+                db_scan_count += 1
+                supabase.table("profiles").update({"scan_count": db_scan_count}).eq("id", user_id).execute()
+                
+                # 🆕 SAVE LOG TO CLOUD HISTORY FOR FREE REGISTERED USERS
+                supabase.table("scans").insert({"user_id": user_id, "solution_text": solution_text}).execute()
+                
+                if "main_camera_input" in st.session_state:
+                    del st.session_state["main_camera_input"]
+            
+            elif is_authenticated and is_premium_user:
+                # 🆕 SAVE LOG TO CLOUD HISTORY FOR PREMIUM USERS
+                supabase.table("scans").insert({"user_id": user_id, "solution_text": solution_text}).execute()
+                
+                if "main_camera_input" in st.session_state:
+                    del st.session_state["main_camera_input"]
+            
+                if not is_authenticated and allow_anonymous_processing:
+                    st.session_state.anon_scans = anon_scans
+                    local_storage.setItem("anon_scan_count", anon_scans)
+    
+                # Clear out the photo file buffer seamlessly
+                if "main_camera_input" in st.session_state:
+                    del st.session_state["main_camera_input"]
             
         except Exception as e:
             st.error(f"Processing Engine Error: {e}")
+
+# ==========================================
+# 📺 RENDERING ENGINE (EVERYONE COMES HERE FIRST)
+# ==========================================
+if st.session_state.latest_solution_text is not None:
+    st.markdown("---")
+    
+    if st.session_state.latest_solution_audio:
+        st.subheader("🔊 Listen to Solution:")
+        st.audio(st.session_state.latest_solution_audio, format="audio/mp3", autoplay=True)
+    
+    st.subheader("📝 Visual Text Breakdown:")
+    st.markdown(st.session_state.latest_solution_text)
+    
+    # ⚠️ LIMIT CHECK GATEWAY (MOVED TO BOTTOM BUTTON CONTROL)
+    if not is_authenticated and anon_scans >= FREE_LIMIT:
+        st.warning("⚠️ You have officially used your free scan!")
+        if st.button("Unlock Unlimited Premium Usage Now", use_container_width=True):
+            # Clean values out before routing to login gateways on rerun
+            st.session_state.latest_solution_text = None
+            st.session_state.latest_solution_audio = None
+            st.rerun()
+    
+    # Optional UI Synchronizer Button for earlier scans
+    elif not is_authenticated:
+        if st.button("🔄 Sync App UI Counter View", use_container_width=True):
+            st.rerun()
+            
+        
