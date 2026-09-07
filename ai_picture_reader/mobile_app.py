@@ -8,7 +8,7 @@ from google import genai
 from dotenv import load_dotenv
 from gtts import gTTS
 from supabase import create_client, Client
-
+import urllib.parse
 # Load environment variables securely from .env file
 load_dotenv()
 supabase_url = os.environ.get("SUPABASE_URL")
@@ -43,10 +43,20 @@ st.components.v1.html(
     height=0,
 )
 
+# ==========================================
+# 🔄 AIRTIGHT INBOUND PASSWORD RESET INTERCEPTOR
+# ==========================================
 url_params = st.query_params
 
-# ✅ FIX: Detect the incoming raw encryption JWT token passed from Supabase
-if "access_token" in url_params or ("type" in url_params and url_params["type"] == "recovery"):
+# 🌐 Extra-sensory grabber: Look directly at the browser's absolute raw header URL to find hidden '#' hashes
+
+raw_url_context = st.context.headers.get("referer", "")
+
+# Check if either 'access_token' is in the query params OR sitting in the hidden raw hash fragment
+has_token_in_url = "access_token" in url_params or "#access_token=" in raw_url_context
+has_recovery_type = ("type" in url_params and url_params["type"] == "recovery") or "type=recovery" in raw_url_context
+
+if has_token_in_url or has_recovery_type:
     st.title("🔄 Choose a New Password")
     new_password = st.text_input("Type your new secure password:", type="password", key="reset_new_pass")
     confirm_password = st.text_input("Confirm your new password:", type="password", key="reset_confirm_pass")
@@ -60,15 +70,16 @@ if "access_token" in url_params or ("type" in url_params and url_params["type"] 
             try:
                 # Update the account row inside Supabase Auth directly using the active session token
                 supabase.auth.update_user({"password": new_password})
-                st.success("Password updated successfully!")
+                st.success("Password updated successfully! You can now log in with your new password.")
                 
-                # Clear parameters and refresh
+                # Clean up url view states entirely
                 st.query_params.clear()
                 st.session_state.reset_mode = False
                 st.rerun()
             except Exception as e:
                 st.error(f"Failed to update password: {e}")
     st.stop()
+
 
 # ==========================================
 # 📱 STREAMLIT PAGE CONFIG & MOBILE STYLING
