@@ -262,8 +262,8 @@ if not is_premium_user:
             payment_method_types=['card'],
             line_items=[{'price': stripe_price_id, 'quantity': 1}],
             mode='subscription',
-            success_url='https://onrender.com?stripe_session_id={CHECKOUT_SESSION_ID}',
-            cancel_url='https://onrender.com?stripe_session_id={CHECKOUT_SESSION_ID}',
+            success_url='https://ai-vision-scanner.onrender.com?stripe_session_id={CHECKOUT_SESSION_ID}',
+            cancel_url='https://ai-vision-scanner.onrender.com?stripe_session_id={CHECKOUT_SESSION_ID}',
             client_reference_id=user_id if user_id else "anonymous_guest"
         )
         st.link_button("🎟️ Upgrade to Premium Now", session.url, use_container_width=True)
