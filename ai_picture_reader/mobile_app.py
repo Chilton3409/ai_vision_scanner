@@ -57,6 +57,18 @@ st.markdown(
 )
 
 st.title("🔊 Point, shoot, listen")
+# ==========================================
+# 💾 INITIALIZE GLOBAL SESSION STATE KEYS
+# ==========================================
+# Always establish your memory anchors first to prevent attribute crashes on reloads!
+if "user_session" not in st.session_state:
+    st.session_state.user_session = None
+if "is_premium_user" not in st.session_state:
+    st.session_state.is_premium_user = False
+if "anon_scans" not in st.session_state:
+    st.session_state.anon_scans = 0
+if "fallback_anon_scans" not in st.session_state:
+    st.session_state.fallback_anon_scans = 0
 
 # ==========================================
 # 🆕 TRACK ANONYMOUS SESSIONS (FREE TRIAL)
