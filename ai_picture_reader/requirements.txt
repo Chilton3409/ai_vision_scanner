@@ -3,3 +3,4 @@ supabase
 stripe
 gTTS
 python-dotenv
+streamlit-local-storage
