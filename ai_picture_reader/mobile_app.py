@@ -257,6 +257,8 @@ is_premium_user = check_active_subscription(user_id)
 if "stripe_session_id" in url_params and not is_premium_user:
     with st.spinner("Verifying transaction credentials..."):
         try:
+            # 🛠️ THE EXACT FIX: Grab the true user ID here before running the database query!
+            user_id = st.session_state.user_session.user.id
             stripe_session = stripe.checkout.Session.retrieve(url_params["stripe_session_id"])
             if stripe_session.payment_status == "paid":
                 cust_id = stripe_session.customer
