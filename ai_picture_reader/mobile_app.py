@@ -218,8 +218,9 @@ if not allow_anonymous_processing and not is_authenticated:
 
 
 
-# ==========================================
-is_premium_user = False
+# Initialize the session state key if it doesn't exist yet
+if "is_premium" not in st.session_state:
+    st.session_state.is_premium = False
 db_scan_count = 0
 user_id = None
 
