@@ -218,44 +218,79 @@ if not allow_anonymous_processing and not is_authenticated:
 
 
 
-# Initialize the session state key if it doesn't exist yet
+# Initialize the state tracking key cleanly if missing from active runtime memory
 if "is_premium_user" not in st.session_state:
     st.session_state.is_premium_user = False
+
 db_scan_count = 0
 user_id = None
+
+# ==========================================
+# 💳 GATEWAY 2: STRIPE PAYWALL GATEKEEPER
+# ==========================================
+def check_active_subscription(uid):
+    """Queries the profiles table to see if user has access"""
+    try:
+        res = supabase.table("profiles").select("is_subscribed").eq("id", uid).maybe_single().execute()
+        if res.data and res.data.get("is_subscribed") == True:
+            return True
+    except Exception:
+        pass
+    return False
+
+def generate_stripe_checkout(uid):
+    """Generates a secure checkout link custom mapped to the user ID"""
+    session = stripe.checkout.Session.create(
+        payment_method_types=['card'],
+        line_items=[{'price': stripe_price_id, 'quantity': 1}],
+        mode='subscription',
+        success_url='https://ai-vision-scanner.onrender.com?stripe_session_id={CHECKOUT_SESSION_ID}',
+        cancel_url='https://ai-vision-scanner.onrender.com?stripe_session_id={CHECKOUT_SESSION_ID}',
+        client_reference_id=uid
+    )
+    return session.url
 
 if is_authenticated:
     user_id = st.session_state.user_session.user.id
     
-    try:
-        # Pull un-hackable data records directly from your backend profile table
-        res = supabase.table("profiles").select("is_subscribed", "scan_count").eq("id", user_id).maybe_single().execute()
-        if res.data:
-            is_premium_user = res.data.get("is_subscribed", False)
-            db_scan_count = res.data.get("scan_count", 0)
-    except Exception as e:
-        st.error(f"Subscription Error: {e}")
+    # 🔄 SAFE CHECK: If local memory state is already True, do not call the slow database at all!
+    if not st.session_state.is_premium_user:
+        if check_active_subscription(user_id):
+            st.session_state.is_premium_user = True
+    
 
+    try:
+        # Fetch auxiliary parameters like scan counts
+        res = supabase.table("profiles").select("scan_count").eq("id", user_id).maybe_single().execute()
+        if res.data:
+            db_scan_count = res.data.get("scan_count", 0)
+    except Exception:
+        pass
 
     # Intercept inbound payment tokens from Stripe
-    if "stripe_session_id" in url_params and not is_premium_user:
+    if "stripe_session_id" in url_params and not st.session_state.is_premium_user:
         with st.spinner("Verifying transaction credentials..."):
             try:
                 stripe_session = stripe.checkout.Session.retrieve(url_params["stripe_session_id"])
                 if stripe_session.payment_status == "paid":
+                    cust_id = stripe_session.customer
                     supabase.table("profiles").upsert({
                         "id": user_id, 
                         "is_subscribed": True,
-                        "stripe_customer_id": stripe_session.customer
+                        "stripe_customer_id": cust_id
                     }).execute()
+                    
+                    # ✅ THE FIX: Lock the authorization state open locally before triggering rerun execution blocks
+                    st.session_state.is_premium_user = True
                     st.success("Premium account confirmed!")
                     st.query_params.clear() 
                     st.rerun()
             except Exception as e:
                 st.error(f"Transaction confirmation fault: {e}")
-# Use the cached session state parameter for safety checks below
+
+# Read final permissions directly from your state tracking cache object
 is_premium_user = st.session_state.is_premium_user
-# 🎟️ THE STRIPE REDIRECT (Triggers if they aren't premium, whether logged in OR anonymous!)
+
 if not is_premium_user:
     st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
     
@@ -276,9 +311,11 @@ if not is_premium_user:
         if st.sidebar.button("Log Out", use_container_width=True):
             supabase.auth.sign_out()
             st.session_state.user_session = None
+            st.session_state.is_premium_user = False
             st.rerun()
             
     st.stop()
+
 # ==========================================
 # 🚀 RUNTIME SIDEBAR & DASHBOARD DISPLAY
 # ==========================================
