@@ -473,4 +473,4 @@ if st.session_state.latest_solution_text is not None:
         if st.button("🔄 Sync App UI Counter View", use_container_width=True):
             st.rerun()
             
-        s
+        
