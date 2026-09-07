@@ -29,24 +29,42 @@ supabase = get_supabase()
 # ==========================================
 # 🔄 INBOUND PASSWORD RESET INTERCEPTOR
 # ==========================================
+# JavaScript Hack: Automatically converts Supabase '#' hash URLs into standard '?' query parameters
+st.components.v1.html(
+    """
+    <script>
+    const currentUrl = window.parent.location.href;
+    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=recovery')) {
+        const cleanUrl = currentUrl.replace('#', '?');
+        window.parent.location.href = cleanUrl;
+    }
+    </script>
+    """,
+    height=0,
+)
+
 url_params = st.query_params
-if "type" in url_params and url_params["type"] == "recovery":
+
+# ✅ FIX: Detect the incoming raw encryption JWT token passed from Supabase
+if "access_token" in url_params or ("type" in url_params and url_params["type"] == "recovery"):
     st.title("🔄 Choose a New Password")
-    new_password = st.text_input("Type your new secure password:", type="password")
-    confirm_password = st.text_input("Confirm your new password:", type="password")
+    new_password = st.text_input("Type your new secure password:", type="password", key="reset_new_pass")
+    confirm_password = st.text_input("Confirm your new password:", type="password", key="reset_confirm_pass")
     
-    if st.button("Update Password and Log In", use_container_width=True):
+    if st.button("Update Password and Log In", use_container_width=True, key="submit_new_pass_btn"):
         if len(new_password) < 6:
             st.warning("Password must be at least 6 characters long.")
         elif new_password != confirm_password:
             st.error("Passwords do not match.")
         else:
             try:
+                # Update the account row inside Supabase Auth directly using the active session token
                 supabase.auth.update_user({"password": new_password})
                 st.success("Password updated successfully!")
+                
+                # Clear parameters and refresh
                 st.query_params.clear()
-                if "reset_mode" in st.session_state:
-                    st.session_state.reset_mode = False
+                st.session_state.reset_mode = False
                 st.rerun()
             except Exception as e:
                 st.error(f"Failed to update password: {e}")
