@@ -199,8 +199,7 @@ if not allow_anonymous_processing and not is_authenticated:
             except Exception as e:
                 st.error(f"Registration Error: {e}")
 
-    # 👇 ADD THIS LINE HERE AT THE BASE LEVEL OF THE CONDITIONAL IF-STATEMENT
-    st.stop() 
+
 
 
 # ==========================================
@@ -217,8 +216,8 @@ if is_authenticated:
         if res.data:
             is_premium_user = res.data.get("is_subscribed", False)
             db_scan_count = res.data.get("scan_count", 0)
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Subscription Error: {e}")
 
 
     # Intercept inbound payment tokens from Stripe
@@ -238,24 +237,30 @@ if is_authenticated:
             except Exception as e:
                 st.error(f"Transaction confirmation fault: {e}")
 
-    # If logged in but not premium, block completely and present Stripe Checkout links
-    if not is_premium_user:
-        st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
+# 🎟️ THE STRIPE REDIRECT (Triggers if they aren't premium, whether logged in OR anonymous!)
+if not is_premium_user:
+    st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
+    
+    try:
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[{'price': stripe_price_id, 'quantity': 1}],
             mode='subscription',
-            success_url='https://ai-vision-scanner.onrender.com/?stripe_session_id={CHECKOUT_SESSION_ID}',
-            cancel_url='https://ai-vision-scanner.onrender.com/?stripe_session_id={CHECKOUT_SESSION_ID}',
-            client_reference_id=user_id
+            success_url='https://onrender.com{CHECKOUT_SESSION_ID}',
+            cancel_url='https://onrender.com{CHECKOUT_SESSION_ID}',
+            client_reference_id=user_id if user_id else "anonymous_guest"
         )
         st.link_button("🎟️ Upgrade to Premium Now", session.url, use_container_width=True)
+    except Exception as stripe_err:
+        st.error(f"Stripe Session Generation Failed: {stripe_err}")
+
+    if is_authenticated:
         if st.sidebar.button("Log Out", use_container_width=True):
             supabase.auth.sign_out()
             st.session_state.user_session = None
             st.rerun()
-        st.stop()
-
+            
+    st.stop()
 # ==========================================
 # 🚀 RUNTIME SIDEBAR & DASHBOARD DISPLAY
 # ==========================================
