@@ -253,7 +253,8 @@ if is_authenticated:
                     st.rerun()
             except Exception as e:
                 st.error(f"Transaction confirmation fault: {e}")
-
+# Use the cached session state parameter for safety checks below
+is_premium_user = st.session_state.is_premium
 # 🎟️ THE STRIPE REDIRECT (Triggers if they aren't premium, whether logged in OR anonymous!)
 if not is_premium_user:
     st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
