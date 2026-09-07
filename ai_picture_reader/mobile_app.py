@@ -145,7 +145,7 @@ if not allow_anonymous_processing and not is_authenticated:
 
     tab1, tab2 = st.tabs(["🔒 Sign In", "📝 Create Account"])
     
-        with tab1:
+    with tab1:
         login_email = st.text_input("Email Address", key="login_email")
         login_password = st.text_input("Password", type="password", key="login_password")
         
