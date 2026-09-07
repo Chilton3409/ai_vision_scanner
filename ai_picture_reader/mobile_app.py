@@ -250,74 +250,44 @@ def generate_stripe_checkout(uid):
     )
     return session.url
 
-if is_authenticated:
-    user_id = st.session_state.user_session.user.id
-    
-    # 🔄 SAFE CHECK: If local memory state is already True, do not call the slow database at all!
-    if not st.session_state.is_premium_user:
-        if check_active_subscription(user_id):
-            st.session_state.is_premium_user = True
-    
+# Read active payment metadata state
+is_premium_user = check_active_subscription(user_id)
 
-    try:
-        # Fetch auxiliary parameters like scan counts
-        res = supabase.table("profiles").select("scan_count").eq("id", user_id).maybe_single().execute()
-        if res.data:
-            db_scan_count = res.data.get("scan_count", 0)
-    except Exception:
-        pass
+# Intercept inbound payment tokens from Stripe
+if "stripe_session_id" in url_params and not is_premium_user:
+    with st.spinner("Verifying transaction credentials..."):
+        try:
+            stripe_session = stripe.checkout.Session.retrieve(url_params["stripe_session_id"])
+            if stripe_session.payment_status == "paid":
+                cust_id = stripe_session.customer
+                
+                # Record both active premium clearance and the Customer ID in your profile row
+                supabase.table("profiles").upsert({
+                    "id": user_id, 
+                    "is_subscribed": True,
+                    "stripe_customer_id": cust_id
+                }).execute()
+                
+                st.success("Premium account confirmed!")
+                st.query_params.clear() 
+                st.rerun()
+        except Exception as e:
+            st.error(f"Transaction confirmation fault: {e}")
 
-    # Intercept inbound payment tokens from Stripe
-    if "stripe_session_id" in url_params and not st.session_state.is_premium_user:
-        with st.spinner("Verifying transaction credentials..."):
-            try:
-                stripe_session = stripe.checkout.Session.retrieve(url_params["stripe_session_id"])
-                if stripe_session.payment_status == "paid":
-                    cust_id = stripe_session.customer
-                    supabase.table("profiles").upsert({
-                        "id": user_id, 
-                        "is_subscribed": True,
-                        "stripe_customer_id": cust_id
-                    }).execute()
-                    
-                    # ✅ THE FIX: Lock the authorization state open locally before triggering rerun execution blocks
-                    st.session_state.is_premium_user = True
-                    st.success("Premium account confirmed!")
-                    st.query_params.clear() 
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Transaction confirmation fault: {e}")
-
-# Read final permissions directly from your state tracking cache object
-is_premium_user = st.session_state.is_premium_user
-
+# If they aren't premium, lock down the camera widget and display the pricing link
 if not is_premium_user:
     st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
+    checkout_url = generate_stripe_checkout(user_id)
+    st.link_button("🎟️ Upgrade to Premium Now", checkout_url, use_container_width=True)
     
-    try:
-        session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{'price': stripe_price_id, 'quantity': 1}],
-            mode='subscription',
-            success_url='https://ai-vision-scanner.onrender.com?stripe_session_id={CHECKOUT_SESSION_ID}',
-            cancel_url='https://ai-vision-scanner.onrender.com?stripe_session_id={CHECKOUT_SESSION_ID}',
-            client_reference_id=user_id if user_id else "anonymous_guest"
-        )
-        st.link_button("🎟️ Upgrade to Premium Now", session.url, use_container_width=True)
-    except Exception as stripe_err:
-        st.error(f"Stripe Session Generation Failed: {stripe_err}")
-
-    if is_authenticated:
-        if st.sidebar.button("Log Out", use_container_width=True):
-            supabase.auth.sign_out()
-            st.session_state.user_session = None
-            st.session_state.is_premium_user = False
-            st.rerun()
-            
+    if st.sidebar.button("Log Out", use_container_width=True):
+        supabase.auth.sign_out()
+        st.session_state.user_session = None
+        st.rerun()
     st.stop()
 
 # ==========================================
-# 🚀 RUNTIME SIDEBAR & DASHBOARD DISPLAY
+# 🚀 CORE APPLICATION PIPELINE (PREMIUM USERS ONLY)
 # ==========================================
 def get_user_billing_portal_url(uid):
     """Fetches customer ID from Supabase and requests a short-lived Stripe portal session link"""
@@ -327,38 +297,28 @@ def get_user_billing_portal_url(uid):
             cust_id = res.data["stripe_customer_id"]
             portal_session = stripe.billing_portal.Session.create(
                 customer=cust_id,
-                return_url='https://ai-vision-scanner.onrender.com/'
+                return_url='https://ai-vision-scanner.onrender.com'
             )
             return portal_session.url
     except Exception as e:
         pass
     return None
 
-if is_premium_user:
-    st.sidebar.subheader("🌟 Premium Account Active")
-    st.sidebar.text(f"Logged in: {st.session_state.user_session.user.email}")
-    management_url = get_user_billing_portal_url(user_id)
-    if management_url:
-        st.sidebar.link_button("💳 Manage Subscription", management_url, use_container_width=True)
-        
-    # 🆕 RENDER PREMIUM HISTORY ACCORDION TIMELINE
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📜 Your Saved Scans History")
-    try:
-        history_res = supabase.table("scans").select("solution_text", "created_at").order("created_at", descending=True).execute()
-        if history_res.data:
-            for idx, item in enumerate(history_res.data):
-                # Format timestamps cleanly into a readable tag header
-                timestamp_string = item["created_at"][:10] + " " + item["created_at"][11:16]
-                
-                # Create dropdown expanders for each historical scan
-                with st.sidebar.expander(f"🔍 Scan ({timestamp_string})"):
-                    # Slice text preview or show the whole text entry
-                    st.write(item["solution_text"])
-        else:
-            st.sidebar.caption("No previous scans found yet. Take your first snapshot!")
-    except Exception:
-        pass
+st.sidebar.subheader("Premium Account Active")
+st.sidebar.text(f"Logged in: {st.session_state.user_session.user.email}")
+
+# Generate the portal url reactively
+management_url = get_user_billing_portal_url(user_id)
+if management_url:
+    st.sidebar.link_button("💳 Manage Subscription", management_url, use_container_width=True)
+else:
+    st.sidebar.caption("Billing sync pending next transaction cycle.")
+
+if st.sidebar.button("Log Out", use_container_width=True):
+    supabase.auth.sign_out()
+    st.session_state.user_session = None
+    st.rerun()
+    
 
 
 # ==========================================
