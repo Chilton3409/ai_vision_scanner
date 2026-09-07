@@ -145,9 +145,10 @@ if not allow_anonymous_processing and not is_authenticated:
 
     tab1, tab2 = st.tabs(["🔒 Sign In", "📝 Create Account"])
     
-    with tab1:
+        with tab1:
         login_email = st.text_input("Email Address", key="login_email")
         login_password = st.text_input("Password", type="password", key="login_password")
+        
         if st.button("Log In", use_container_width=True):
             try:
                 response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
@@ -157,21 +158,36 @@ if not allow_anonymous_processing and not is_authenticated:
                 res = supabase.table("profiles").select("scan_count").eq("id", uid).maybe_single().execute()
                 if res.data:
                     existing_db_scans = res.data.get("scan_count", 0)
-                    # Merge network tracking tokens with their formal account profile history
                     new_total = existing_db_scans + anon_scans
                     supabase.table("profiles").update({"scan_count": new_total}).eq("id", uid).execute()
                 
-                # Reset their anonymous IP tracker row back to zero since the history passed up safely
                 if ip_hash:
                     supabase.table("device_tracking").update({"scan_count": 0}).eq("ip_hash", ip_hash).execute()
                 
-                # ✅ Fixed line break: Safely establish the active user session parameters
                 st.session_state.user_session = response.session
                 st.success("Access Granted!")
                 clear_active_solution()
                 st.rerun()
             except Exception as e:
                 st.error(f"Login Failed: {e}")
+
+        # 🔄 👇 NEW: FORGOT PASSWORD REQUEST DISCOVERY
+        st.markdown("---")
+        with st.expander("Forgot Password?"):
+            reset_email = st.text_input("Enter your account email:", key="reset_email_input")
+            if st.button("Send Reset Link Email", use_container_width=True):
+                if not reset_email.strip():
+                    st.warning("Please provide a valid email address.")
+                else:
+                    try:
+                        # Fires off the Supabase server email mechanism targeting your render application domain
+                        supabase.auth.reset_password_for_email(
+                            reset_email, 
+                            options={"redirectTo": "https://onrender.com"}
+                        )
+                        st.success("Recovery instructions dispatched! Check your email inbox for your reset link.")
+                    except Exception as reset_err:
+                        st.error(f"Failed to issue reset pipeline: {reset_err}")
 
                 
     with tab2:
@@ -457,4 +473,4 @@ if st.session_state.latest_solution_text is not None:
         if st.button("🔄 Sync App UI Counter View", use_container_width=True):
             st.rerun()
             
-        
+        s
