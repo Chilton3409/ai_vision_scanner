@@ -244,8 +244,8 @@ if is_authenticated:
             payment_method_types=['card'],
             line_items=[{'price': stripe_price_id, 'quantity': 1}],
             mode='subscription',
-            success_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/?stripe_session_id={CHECKOUT_SESSION_ID}',
-            cancel_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/?stripe_session_id={CHECKOUT_SESSION_ID}',
+            success_url='https://ai-vision-scanner.onrender.com/?stripe_session_id={CHECKOUT_SESSION_ID}',
+            cancel_url='https://ai-vision-scanner.onrender.com/?stripe_session_id={CHECKOUT_SESSION_ID}',
             client_reference_id=user_id
         )
         st.link_button("🎟️ Upgrade to Premium Now", session.url, use_container_width=True)
@@ -266,7 +266,7 @@ def get_user_billing_portal_url(uid):
             cust_id = res.data["stripe_customer_id"]
             portal_session = stripe.billing_portal.Session.create(
                 customer=cust_id,
-                return_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/'
+                return_url='https://ai-vision-scanner.onrender.com/'
             )
             return portal_session.url
     except Exception as e:
