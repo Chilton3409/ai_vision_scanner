@@ -64,8 +64,7 @@ st.title("🔊 Point, shoot, listen")
 local_storage = LocalStorage()
  #👇 PASTE THIS LINE TEMPORARILY TO WIPE THE BAD DATA
 #local_storage.setItem("anon_scan_count", 0)
-FREE_LIMIT = 0
-anon_scans = 0
+
 ip_hash = None
 FREE_LIMIT = 1
 anon_scans = 0
@@ -112,8 +111,7 @@ if not is_authenticated:
     except Exception:
         anon_scans = st.session_state.get("fallback_anon_scans", 0)
 
-allow_anonymous_processing = anon_scans < FREE_LIMIT
-# Helper to clear stashed AI solutions during login transitions
+allow_anonymous_processing = anon_scans < FREE_LIMIT and not is_authenticated# Helper to clear stashed AI solutions during login transitions
 def clear_active_solution():
     st.session_state.latest_solution_text = None
     st.session_state.latest_solution_audio = None
@@ -200,6 +198,9 @@ if not allow_anonymous_processing and not is_authenticated:
                 st.success("Account created successfully! Check your email inbox for a confirmation link, then Sign In.")
             except Exception as e:
                 st.error(f"Registration Error: {e}")
+
+    # 👇 ADD THIS LINE HERE AT THE BASE LEVEL OF THE CONDITIONAL IF-STATEMENT
+    st.stop() 
 
 
 # ==========================================
@@ -370,6 +371,10 @@ if "latest_solution_audio" not in st.session_state:
 
 # 4. Trigger Execution Pipeline on Capture
 if captured_image is not None:
+    # 🛑 THE GATEKEEPER: Stop process if anonymous limit reached and user isn't authenticated
+    if not is_authenticated and anon_scans >= FREE_LIMIT:
+        st.error("⚠️ Free limit reached. Please sign in or create an account above to process this scan.")
+        st.stop()
     raw_bytes = captured_image.getvalue()
     bytes_hash = hashlib.md5(raw_bytes).hexdigest()
     
