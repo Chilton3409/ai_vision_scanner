@@ -41,18 +41,6 @@ if "access_token" in url_params or url_params.get("type") == "magiclink":
 # 🔄 AIRTIGHT INBOUND MAGIC LINK INTERCEPTOR
 # ==========================================
 # 1. JavaScript Hack: Instantly converts the '#' hash fragment into a readable '?' query parameter
-st.components.v1.html(
-    """
-    <script>
-    const currentUrl = window.parent.location.href;
-    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=magiclink')) {
-        const cleanUrl = currentUrl.replace('#', '?');
-        window.parent.location.href = cleanUrl;
-    }
-    </script>
-    """,
-    height=0,
-)
 
 url_params = st.query_params
 
