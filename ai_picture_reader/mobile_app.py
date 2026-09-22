@@ -48,15 +48,27 @@ st.components.v1.html(
 # ==========================================
 url_params = st.query_params
 
-# 🌐 Extra-sensory grabber: Look directly at the browser's absolute raw header URL to find hidden '#' hashes
+# JavaScript Hack: Instantly catches the browser's raw location string from the parent window
+# If a '#' token fragment is detected, it handles a clean client-side reload using '?' query parameters
+st.components.v1.html(
+    """
+    <script>
+    const currentUrl = window.parent.location.href;
+    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=recovery')) {
+        const cleanUrl = currentUrl.replace('#', '?');
+        window.parent.location.href = cleanUrl;
+    }
+    </script>
+    """,
+    height=0,
+)
 
-raw_url_context = st.context.headers.get("referer", "")
+# Extract token values out of query parameters after the URL rewrite executes
+inbound_access_token = url_params.get("access_token")
+inbound_refresh_token = url_params.get("refresh_token")
+is_recovery_type = url_params.get("type") == "recovery"
 
-# Check if either 'access_token' is in the query params OR sitting in the hidden raw hash fragment
-has_token_in_url = "access_token" in url_params or "#access_token=" in raw_url_context
-has_recovery_type = ("type" in url_params and url_params["type"] == "recovery") or "type=recovery" in raw_url_context
-
-if has_token_in_url or has_recovery_type:
+if inbound_access_token or is_recovery_type:
     st.title("🔄 Choose a New Password")
     new_password = st.text_input("Type your new secure password:", type="password", key="reset_new_pass")
     confirm_password = st.text_input("Confirm your new password:", type="password", key="reset_confirm_pass")
@@ -68,13 +80,19 @@ if has_token_in_url or has_recovery_type:
             st.error("Passwords do not match.")
         else:
             try:
-                # Update the account row inside Supabase Auth directly using the active session token
-                supabase.auth.update_user({"password": new_password})
-                st.success("Password updated successfully! You can now log in with your new password.")
+                # 🔥 THE FIX: Explicitly mount the inbound access token into the current Supabase client session 
+                # so the backend knows exactly which user context to authorize for the update_user call
+                if inbound_access_token:
+                    supabase.auth.set_session(inbound_access_token, inbound_refresh_token or "")
                 
-                # Clean up url view states entirely
+                # Update the account security row inside Supabase Auth directly
+                supabase.auth.update_user({"password": new_password})
+                st.success("Password updated successfully! You are now logged in.")
+                
+                # Clean up url view states entirely and clear the query parameter bar
                 st.query_params.clear()
-                st.session_state.reset_mode = False
+                if "reset_mode" in st.session_state:
+                    st.session_state.reset_mode = False
                 st.rerun()
             except Exception as e:
                 st.error(f"Failed to update password: {e}")
