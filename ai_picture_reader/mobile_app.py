@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from gtts import gTTS
 from supabase import create_client, Client
 import urllib.parse
+
 # Load environment variables securely from .env file
 load_dotenv()
 supabase_url = os.environ.get("SUPABASE_URL")
@@ -27,74 +28,55 @@ def get_supabase() -> Client:
 supabase = get_supabase()
 
 # ==========================================
-# 🔄 INBOUND PASSWORD RESET INTERCEPTOR
+# 🔄 PRODUCTION MAGIC LINK SESSION INTERCEPTOR
 # ==========================================
-# Place this at the very top of your app.py file
+# JavaScript Engine: Converts the native browser URL hash '#' into a backend-readable '?' query string
+st.components.v1.html(
+    """
+    <script>
+    const currentUrl = window.parent.location.href;
+    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=magiclink')) {
+        const cleanUrl = currentUrl.replace('#', '?');
+        window.parent.location.href = cleanUrl;
+    }
+    </script>
+    """,
+    height=0,
+)
+
 url_params = st.query_params
 
-# Detect the magiclink type sent back from your email
-if "access_token" in url_params or url_params.get("type") == "magiclink":
-    # Clean up the query parameters in the browser bar
-    st.query_params.clear()
-    st.rerun()
-# ==========================================
-# 🔄 AIRTIGHT INBOUND MAGIC LINK INTERCEPTOR
-# ==========================================
-# 1. JavaScript Hack: Instantly converts the '#' hash fragment into a readable '?' query parameter
-
-url_params = st.query_params
-
-# 2. Extract the token out of the query parameters after the URL rewrite executes
+# Native Fallback: Directly extract tokens from raw HTTP referer headers if the JavaScript block is sandboxed
+raw_referer_url = st.context.headers.get("referer", "")
 inbound_access_token = url_params.get("access_token")
 inbound_refresh_token = url_params.get("refresh_token")
 is_magic_link = url_params.get("type") == "magiclink"
 
-# 3. If we have an access token or a magic link type, log the user in immediately
+if not inbound_access_token and "#access_token=" in raw_referer_url:
+    try:
+        parsed_fragment = urllib.parse.urlparse(raw_referer_url).fragment
+        fragment_params = urllib.parse.parse_qs(parsed_fragment)
+        inbound_access_token = fragment_params.get("access_token", [None])[0]
+        inbound_refresh_token = fragment_params.get("refresh_token", [None])[0]
+        is_magic_link = True
+    except Exception:
+        pass
+
+# Handoff Session validation to Supabase if an inbound token is detected
 if inbound_access_token or is_magic_link:
     try:
         if inbound_access_token:
-            # 🔥 Save it: Explicitly mount the token into your active Supabase client session
             response = supabase.auth.set_session(inbound_access_token, inbound_refresh_token or "")
-            # Save the session to your Streamlit state so the app knows you are authenticated
             st.session_state.user_session = response.session
             st.success("Successfully authenticated via Magic Link!")
         
-        # Clean up the query parameters in the browser bar so it looks nice
+        # Clean up browser tracking params and refresh the application state
         st.query_params.clear()
+        if "reset_mode" in st.session_state:
+            st.session_state.reset_mode = False
         st.rerun()
     except Exception as e:
         st.error(f"Authentication failed: {e}")
-    st.stop()
-
-
-if is_magic_link:
-    st.title("🔄 Choose a New Password")
-    new_password = st.text_input("Type your new secure password:", type="password", key="reset_new_pass")
-    confirm_password = st.text_input("Confirm your new password:", type="password", key="reset_confirm_pass")
-    
-    if st.button("Update Password and Log In", use_container_width=True, key="submit_new_pass_btn"):
-        if len(new_password) < 6:
-            st.warning("Password must be at least 6 characters long.")
-        elif new_password != confirm_password:
-            st.error("Passwords do not match.")
-        else:
-            try:
-                # 🔥 THE FIX: Explicitly mount the inbound access token into the current Supabase client session 
-                # so the backend knows exactly which user context to authorize for the update_user call
-                if inbound_access_token:
-                    supabase.auth.set_session(inbound_access_token, inbound_refresh_token or "")
-                
-                # Update the account security row inside Supabase Auth directly
-                supabase.auth.update_user({"password": new_password})
-                st.success("Password updated successfully! You are now logged in.")
-                
-                # Clean up url view states entirely and clear the query parameter bar
-                st.query_params.clear()
-                if "reset_mode" in st.session_state:
-                    st.session_state.reset_mode = False
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to update password: {e}")
     st.stop()
 
 
@@ -154,12 +136,11 @@ if st.session_state.user_session is None:
             with col1:
                 if st.button("Send Magic Login Link", use_container_width=True):
                     try:
-                        # Sends a secure, single-use login link directly to their inbox
+                        # Triggers an elegant authentication verification email bypass path
                         supabase.auth.sign_in_with_otp({"email": reset_email})
                         st.success("Login link sent! Click the link in your email to log in automatically.")
                     except Exception as e:
                         st.error(f"Error: {e}")
-
             with col2:
                 if st.button("Back to Login", use_container_width=True):
                     st.session_state.reset_mode = False
@@ -178,6 +159,7 @@ if st.session_state.user_session is None:
 
 # Track active user properties globally below this boundary
 user_id = st.session_state.user_session.user.id
+
 
 # ==========================================
 # 💳 GATEWAY 2: STRIPE PAYWALL GATEKEEPER
