@@ -51,13 +51,15 @@ if "access_token" in url_params or url_params.get("type") == "magiclink":
     # Clean up the query parameters in the browser bar
     st.query_params.clear()
     st.rerun()
-# JavaScript Hack: Instantly catches the browser's raw location string from the parent window
-# If a '#' token fragment is detected, it handles a clean client-side reload using '?' query parameters
+# ==========================================
+# 🔄 AIRTIGHT INBOUND MAGIC LINK INTERCEPTOR
+# ==========================================
+# 1. JavaScript Hack: Instantly converts the '#' hash fragment into a readable '?' query parameter
 st.components.v1.html(
     """
     <script>
     const currentUrl = window.parent.location.href;
-    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=recovery')) {
+    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=magiclink')) {
         const cleanUrl = currentUrl.replace('#', '?');
         window.parent.location.href = cleanUrl;
     }
@@ -66,12 +68,32 @@ st.components.v1.html(
     height=0,
 )
 
-# Extract token values out of query parameters after the URL rewrite executes
+url_params = st.query_params
+
+# 2. Extract the token out of the query parameters after the URL rewrite executes
 inbound_access_token = url_params.get("access_token")
 inbound_refresh_token = url_params.get("refresh_token")
-is_recovery_type = url_params.get("type") == "recovery"
+is_magic_link = url_params.get("type") == "magiclink"
 
-if inbound_access_token or is_recovery_type:
+# 3. If we have an access token or a magic link type, log the user in immediately
+if inbound_access_token or is_magic_link:
+    try:
+        if inbound_access_token:
+            # 🔥 Save it: Explicitly mount the token into your active Supabase client session
+            response = supabase.auth.set_session(inbound_access_token, inbound_refresh_token or "")
+            # Save the session to your Streamlit state so the app knows you are authenticated
+            st.session_state.user_session = response.session
+            st.success("Successfully authenticated via Magic Link!")
+        
+        # Clean up the query parameters in the browser bar so it looks nice
+        st.query_params.clear()
+        st.rerun()
+    except Exception as e:
+        st.error(f"Authentication failed: {e}")
+    st.stop()
+
+
+if is_magic_link:
     st.title("🔄 Choose a New Password")
     new_password = st.text_input("Type your new secure password:", type="password", key="reset_new_pass")
     confirm_password = st.text_input("Confirm your new password:", type="password", key="reset_confirm_pass")
