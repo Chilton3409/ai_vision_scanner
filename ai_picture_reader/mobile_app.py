@@ -43,11 +43,14 @@ st.components.v1.html(
     height=0,
 )
 
-# ==========================================
-# 🔄 AIRTIGHT INBOUND PASSWORD RESET INTERCEPTOR
-# ==========================================
+# Place this at the very top of your app.py file
 url_params = st.query_params
 
+# Detect the magiclink type sent back from your email
+if "access_token" in url_params or url_params.get("type") == "magiclink":
+    # Clean up the query parameters in the browser bar
+    st.query_params.clear()
+    st.rerun()
 # JavaScript Hack: Instantly catches the browser's raw location string from the parent window
 # If a '#' token fragment is detected, it handles a clean client-side reload using '?' query parameters
 st.components.v1.html(
