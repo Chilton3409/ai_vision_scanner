@@ -29,20 +29,6 @@ supabase = get_supabase()
 # ==========================================
 # 🔄 INBOUND PASSWORD RESET INTERCEPTOR
 # ==========================================
-# JavaScript Hack: Automatically converts Supabase '#' hash URLs into standard '?' query parameters
-st.components.v1.html(
-    """
-    <script>
-    const currentUrl = window.parent.location.href;
-    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=recovery')) {
-        const cleanUrl = currentUrl.replace('#', '?');
-        window.parent.location.href = cleanUrl;
-    }
-    </script>
-    """,
-    height=0,
-)
-
 # Place this at the very top of your app.py file
 url_params = st.query_params
 
