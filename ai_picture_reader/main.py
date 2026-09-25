@@ -113,15 +113,26 @@ def authentication_callback(
 
 
 @app.post("/auth/update-password")
-def complete_password_reset(access_token: str, new_password: str):
-    """Updates the user's password securely using their verified recovery context token."""
+def update_user_password(access_token: str, new_password: str):
+    """
+    Updates the logged-in user's credentials securely by manually 
+    initializing a temporary session token context before saving.
+    """
     try:
-        # Pass the access token into Supabase to authorize this specific request context
-        supabase.auth.set_session(access_token, "")
-        supabase.auth.update_user({"password": new_password})
-        return {"success": True, "message": "Password updated securely. You can now login normally."}
+        # 1. Force the Supabase client backend engine to authorize this specific incoming token session
+        supabase.auth.set_session(access_token, "") # Injects the access token natively into current client state
+        
+        # 2. Execute the user credentials update on the now-authenticated session handler
+        response = supabase.auth.update_user({"password": new_password})
+        
+        # 3. Securely wipe the client token state clear right after execution to prevent bleeding context memory
+        supabase.auth.sign_out()
+        
+        return {"success": True, "message": "User password rewritten successfully."}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to update password: {str(e)}")
+        # If it falls through, look closely at your Render terminal log view outputs for exact tracing
+        raise HTTPException(status_code=400, detail=f"Database update engine fault: {str(e)}")
+
 # Helper tool to protect your core scanner routes
 async def is_premium_user(user_id: str) -> bool:
     """Queries the profiles table manually to see if user has access"""
