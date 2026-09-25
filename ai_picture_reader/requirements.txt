@@ -1,6 +1,7 @@
-google-genai
+fastapi
+uvicorn
 supabase
-stripe
-gTTS
 python-dotenv
-streamlit-local-storage
+stripe
+google-genai
+gtts
