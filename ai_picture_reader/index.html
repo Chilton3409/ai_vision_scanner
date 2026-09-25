@@ -109,17 +109,28 @@
     let videoStream = null;
 
     // --- APPLICATION WORKFLOW STATE ENGINE ON LOAD ---
+        // --- APPLICATION WORKFLOW STATE ENGINE ON LOAD ---
     window.addEventListener('DOMContentLoaded', async () => {
+        // Create lookup objects for BOTH query parameters (?) and hash anchors (#)
         const urlParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
         
-        // 1. Check if the URL string is a password update context loop callback
-        if (urlParams.has('access_token') && window.location.pathname.includes('update-password')) {
-            localStorage.setItem('reset_token', urlParams.get('access_token'));
+        // CRUCIAL RECOVERY OVERRIDE: Extract the token from whichever format it arrives in!
+        const recoveryToken = urlParams.get('access_token') || hashParams.get('access_token');
+        const isRecoveryType = urlParams.get('type') === 'recovery' || hashParams.get('type') === 'recovery' || window.location.href.includes('type=recovery');
+
+        // IF A RECOVERY TOKEN IS FOUND, INSTANTLY SHOW THE PASSWORD RESET FORM!
+        if (recoveryToken) {
+            localStorage.setItem('reset_token', recoveryToken);
             showPanel('reset-panel');
+            
+            // Quietly clean up the browser address bar so the token disappears from the screen
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
             return;
         }
 
-        // 2. Normal validation check evaluating persistent local storage data tokens
+        // Standard validation check evaluating persistent local storage user data tokens
         const storedToken = localStorage.getItem('access_token');
         const storedUser = localStorage.getItem('user_id');
         
@@ -129,6 +140,7 @@
             showPanel('auth-panel');
         }
     });
+
 
     // --- INTERFACE LAYOUT ROUTER CONTROLLER ---
     function showPanel(panelId) {
