@@ -184,8 +184,9 @@ def generate_stripe_checkout(uid):
         payment_method_types=['card'],
         line_items=[{'price': stripe_price_id, 'quantity': 1}],
         mode='subscription',
-        success_url='https://streamlit.app{CHECKOUT_SESSION_ID}',
-        cancel_url='https://streamlit.app',
+        # UPDATED TO RENDER DOMAIN BELOW:
+        success_url='https://ai-vision-scanner.onrender.com{CHECKOUT_SESSION_ID}',
+        cancel_url='https://ai-vision-scanner.onrender.com',
         client_reference_id=uid
     )
     return session.url
@@ -237,7 +238,7 @@ def get_user_billing_portal_url(uid):
             cust_id = res.data["stripe_customer_id"]
             portal_session = stripe.billing_portal.Session.create(
                 customer=cust_id,
-                return_url='https://streamlit.app'
+                return_url='https://ai-vision-scanner.onrender.com'
             )
             return portal_session.url
     except Exception as e:
