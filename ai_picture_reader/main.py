@@ -103,17 +103,13 @@ def authentication_callback(
     refresh_token: str = Query(None),
     type: str = Query(None)
 ):
-    """
-    Supabase sends users here. Because FastAPI uses dedicated routes, 
-    we instantly know if they clicked a password reset link without checking state variables!
-    """
+    """Catches the inbound email click and redirects them to the live GitHub Pages site."""
     if type == "recovery" or access_token:
-        # Redirect the user smoothly to a clean, isolated input form endpoint
-        # Passing the token as query variables so the next screen can read it
-        update_url = f"/update-password?access_token={access_token}"
-        return RedirectResponse(url=update_url)
+        # FIX: Point this directly to your live production GitHub Pages domain link instead of port 3000!
+        frontend_target = f"https://YOUR_GITHUB_USERNAME.github.io/ai-vision-scanner/?access_token={access_token}"
+        return RedirectResponse(url=frontend_target)
     
-    return RedirectResponse(url="/")
+    return RedirectResponse(url="https://Chilton3409.github.io/ai-vision-scanner/")
 
 
 @app.post("/auth/update-password")
