@@ -26,15 +26,15 @@ def get_supabase() -> Client:
     return create_client(supabase_url, supabase_key)
 
 supabase = get_supabase()
+
 # ==========================================
-# 🔄 PRODUCTION MAGIC LINK / PASSWORD RESET INTERCEPTOR
+# 🔄 PRODUCTION MAGIC LINK & RECOVERY INTERCEPTOR
 # ==========================================
-# Converts the native browser URL hash '#' into a backend-readable '?' query string
 st.components.v1.html(
     """
     <script>
     const currentUrl = window.parent.location.href;
-    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=recovery')) {
+    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=recovery') || currentUrl.includes('#type=magiclink')) {
         const cleanUrl = currentUrl.replace('#', '?');
         window.parent.location.href = cleanUrl;
     }
@@ -45,10 +45,10 @@ st.components.v1.html(
 
 url_params = st.query_params
 
-# Fallback: Extract tokens from raw HTTP referer headers if the JavaScript block is sandboxed
 raw_referer_url = st.context.headers.get("referer", "")
 inbound_access_token = url_params.get("access_token")
 inbound_refresh_token = url_params.get("refresh_token")
+is_magic_link = url_params.get("type") == "magiclink"
 is_recovery_mode = url_params.get("type") == "recovery" or "type=recovery" in raw_referer_url
 
 if not inbound_access_token and "#access_token=" in raw_referer_url:
@@ -57,24 +57,25 @@ if not inbound_access_token and "#access_token=" in raw_referer_url:
         fragment_params = urllib.parse.parse_qs(parsed_fragment)
         inbound_access_token = fragment_params.get("access_token", [None])[0]
         inbound_refresh_token = fragment_params.get("refresh_token", [None])[0]
+        if "type=recovery" in parsed_fragment:
+            is_recovery_mode = True
     except Exception:
         pass
 
-# Handoff Session validation to Supabase if an inbound token is detected
 if inbound_access_token:
     try:
         response = supabase.auth.set_session(inbound_access_token, inbound_refresh_token or "")
         st.session_state.user_session = response.session
         
-        # If it's a password recovery request, route them straight to update panel
         if is_recovery_mode:
             st.session_state.show_password_update = True
-            st.success("Recovery token validated! Please update your password below.")
+            st.success("Recovery token validated! Please set your new password below.")
         else:
             st.success("Successfully authenticated!")
         
-        # Clean up browser tracking params and refresh the application state
         st.query_params.clear()
+        if "reset_mode" in st.session_state:
+            st.session_state.reset_mode = False
         st.rerun()
     except Exception as e:
         st.error(f"Authentication failed: {e}")
@@ -82,11 +83,10 @@ if inbound_access_token:
 
 
 # ==========================================
-# 📱 STREAMLIT PAGE CONFIG & LAYOUT
+# 📱 STREAMLIT CONFIG & INITIAL STATES
 # ==========================================
-st.set_page_config(page_title="App Authentication Portal", page_icon="🔒", layout="centered")
+st.set_page_config(page_title="AI Talk & Solve Scanner", page_icon="🔊", layout="centered")
 
-# Initialize fundamental layout session states
 if "user_session" not in st.session_state:
     st.session_state.user_session = None
 if "show_password_update" not in st.session_state:
@@ -94,37 +94,31 @@ if "show_password_update" not in st.session_state:
 
 
 # ==========================================
-# 🔑 FORCED PASSWORD UPDATE PANEL (POST-RESET CLICK)
+# 🔑 FORCED PASSWORD UPDATE PANEL
 # ==========================================
 if st.session_state.show_password_update:
-    st.title("🔑 Set New Password")
-    st.write("Enter your new secure account password below.")
-    
+    st.subheader("🔑 Set New Password")
     new_password = st.text_input("New Password", type="password", key="new_password_field")
     confirm_password = st.text_input("Confirm New Password", type="password", key="confirm_password_field")
     
     if st.button("Update Password", use_container_width=True):
-        if not new_password:
-            st.error("Password cannot be blank.")
-        elif new_password != confirm_password:
-            st.error("Passwords do not match.")
+        if not new_password or new_password != confirm_password:
+            st.error("Passwords match error or field blank.")
         else:
             try:
-                # Modifies credentials using the active verified session context
                 supabase.auth.update_user({"password": new_password})
-                st.success("Password updated successfully! You can now access your application.")
+                st.success("Password updated successfully!")
                 st.session_state.show_password_update = False
                 st.rerun()
             except Exception as e:
-                st.error(f"Failed to update password: {e}")
+                st.error(f"Update failed: {e}")
     st.stop()
 
 
 # ==========================================
-# 🛡️ AUTHENTICATION GATEWAY (SIGN IN / SIGN UP / FORGOT)
+# 🛡️ LOGIN & REGISTRATION INTERFACE
 # ==========================================
 if st.session_state.user_session is None:
-    st.title("🔒 Access Gateway")
     tab1, tab2 = st.tabs(["🔒 Sign In", "📝 Create Account"])
     
     with tab1:
@@ -132,76 +126,45 @@ if st.session_state.user_session is None:
             st.session_state.reset_mode = False
 
         if not st.session_state.reset_mode:
-            login_email = st.text_input("Email Address", key="login_email")
+            login_email = st.text_input("Email", key="login_email")
             login_password = st.text_input("Password", type="password", key="login_password")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Log In", use_container_width=True):
-                    try:
-                        response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
-                        st.session_state.user_session = response.session
-                        st.success("Access Granted!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Login Failed: {e}")
-            with col2:
-                if st.button("Forgot Password?", use_container_width=True):
-                    st.session_state.reset_mode = True
+            if st.button("Log In", use_container_width=True):
+                try:
+                    response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
+                    st.session_state.user_session = response.session
                     st.rerun()
+                except Exception as e:
+                    st.error(f"Login Failed: {e}")
+            if st.button("Forgot Password?"):
+                st.session_state.reset_mode = True
+                st.rerun()
         else:
-            st.subheader("🔑 Reset Your Password")
-            reset_email = st.text_input("Enter your account email", key="reset_email")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Send Reset Link", use_container_width=True):
-                    try:
-                        # Triggers an explicit recovery email link route
-                        # Note: Ensure the landing page domain is whitelisted in Supabase Dashboard -> Auth
-                        supabase.auth.reset_password_for_email(reset_email)
-                        st.success("Password reset email dispatched! Click the link inside to modify your password.")
-                    except Exception as e:
-                        st.error(f"Error sending link: {e}")
-            with col2:
-                if st.button("Back to Login", use_container_width=True):
-                    st.session_state.reset_mode = False
-                    st.rerun()
+            reset_email = st.text_input("Reset Email", key="reset_email")
+            if st.button("Send Reset Link"):
+                try:
+                    supabase.auth.reset_password_for_email(reset_email)
+                    st.success("Reset link sent to your email!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            if st.button("Back"):
+                st.session_state.reset_mode = False
+                st.rerun()
                 
     with tab2:
-        reg_email = st.text_input("Email Address", key="reg_email")
-        reg_password = st.text_input("Password", type="password", key="reg_password")
-        if st.button("Sign Up", use_container_width=True):
+        reg_email = st.text_input("Register Email", key="reg_email")
+        reg_password = st.text_input("Register Password", type="password", key="reg_password")
+        if st.button("Sign Up"):
             try:
                 supabase.auth.sign_up({"email": reg_email, "password": reg_password})
-                st.success("Account created successfully! Check your email inbox for a confirmation link, then Sign In.")
+                st.success("Check email context link to activate!")
             except Exception as e:
-                st.error(f"Registration Error: {e}")
+                st.error(f"Error: {e}")
     st.stop()
 
-
-# ==========================================
-# 🚀 PROTECTED APPLICATION HOME (AUTHENTICATED ONLY)
-# ==========================================
-# Track active user properties globally below this boundary
+# Define core workspace profile dimensions safely here
+user_id = st.session_state.user_session.user.id
 user_email = st.session_state.user_session.user.email
 
-st.title("🎉 Welcome to the Secure App Room")
-st.write(f"Hello, **{user_email}**! You have cleared security validation.")
-
-# Sidebar Controls
-st.sidebar.subheader("Account Session")
-st.sidebar.text(f"Logged in: {user_email}")
-
-if st.sidebar.button("Log Out", use_container_width=True):
-    supabase.auth.sign_out()
-    st.session_state.user_session = None
-    st.session_state.show_password_update = False
-    st.rerun()
-
-# --- PLACE YOUR CORE PROTECTED APPLICATION CODE BELOW HERE ---
-st.info("💡 Drop your functional application tools right here inside this protected workspace frame.")
-
-# Track active user properties globally safely AFTER confirming authentication exists
-user_id = st.session_state.user_session.user.id
 # ==========================================
 # 💳 GATEWAY 2: STRIPE PAYWALL GATEKEEPER
 # ==========================================
@@ -221,8 +184,8 @@ def generate_stripe_checkout(uid):
         payment_method_types=['card'],
         line_items=[{'price': stripe_price_id, 'quantity': 1}],
         mode='subscription',
-        success_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/?stripe_session_id={CHECKOUT_SESSION_ID}',
-        cancel_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/',
+        success_url='https://streamlit.app{CHECKOUT_SESSION_ID}',
+        cancel_url='https://streamlit.app',
         client_reference_id=uid
     )
     return session.url
@@ -251,7 +214,7 @@ if "stripe_session_id" in url_params and not is_premium_user:
         except Exception as e:
             st.error(f"Transaction confirmation fault: {e}")
 
-# If they aren't premium, lock down the camera widget and display the pricing link
+# If they aren't premium, lock down the interface and display the pricing link
 if not is_premium_user:
     st.warning("⚠️ Access Restricted: Premium subscription needed to unlock scanning engine assets.")
     checkout_url = generate_stripe_checkout(user_id)
@@ -274,7 +237,7 @@ def get_user_billing_portal_url(uid):
             cust_id = res.data["stripe_customer_id"]
             portal_session = stripe.billing_portal.Session.create(
                 customer=cust_id,
-                return_url='https://aivisionscanner-ijwbtsdtyhpi39pap32sst.streamlit.app/'
+                return_url='https://streamlit.app'
             )
             return portal_session.url
     except Exception as e:
@@ -282,7 +245,7 @@ def get_user_billing_portal_url(uid):
     return None
 
 st.sidebar.subheader("Premium Account Active")
-st.sidebar.text(f"Logged in: {st.session_state.user_session.user.email}")
+st.sidebar.text(f"Logged in: {user_email}")
 
 # Generate the portal url reactively
 management_url = get_user_billing_portal_url(user_id)
@@ -301,7 +264,7 @@ st.write("Snap a photo to instantly see and hear the technical solution.")
 # Initialize the Gemini client (automatically inherits GEMINI_API_KEY from .env)
 client = genai.Client()
 
-# 2. Optimized Pipeline with Smart Image Caching
+# Optimized Pipeline with Smart Image Caching
 @st.cache_data(show_spinner=False)
 def generate_solution_and_audio(image_bytes_hash, image_bytes):
     response = client.models.generate_content(
@@ -326,6 +289,7 @@ def generate_solution_and_audio(image_bytes_hash, image_bytes):
     
     raw_response = response.text if response.text else ""
     
+    # Secure string processing isolates contents cleanly out of list structures
     if "---VISUAL_START---" in raw_response and "---VISUAL_END---" in raw_response:
         text_content = raw_response.split("---VISUAL_START---")[1].split("---VISUAL_END---")[0].strip()
     else:
@@ -354,10 +318,20 @@ def generate_solution_and_audio(image_bytes_hash, image_bytes):
     
     return text_content, audio_bytes
 
-# 3. Native Mobile Camera Input Widget
+# Native Mobile Camera Input Widget
+st.markdown(
+    """
+    <style>
+    div[data-testid="stCameraInput"] { width: 100% !important; }
+    div[data-testid="stCameraInput"] video { width: 100% !important; height: auto !important; }
+    div[data-testid="stCameraInput"] img { width: 100% !important; height: auto !important; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 captured_image = st.camera_input(" ")
 
-# 4. Trigger Execution Pipeline on Capture
+# Trigger Execution Pipeline on Capture
 if captured_image is not None:
     raw_bytes = captured_image.getvalue()
     bytes_hash = hashlib.md5(raw_bytes).hexdigest()
