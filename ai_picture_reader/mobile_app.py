@@ -142,14 +142,18 @@ if st.session_state.user_session is None:
             reset_email = st.text_input("Reset Email", key="reset_email")
             if st.button("Send Reset Link"):
                 try:
-                    supabase.auth.reset_password_for_email(reset_email)
+                    # UPDATED LINE BELOW: Explicitly forces the destination routing parameter
+                    supabase.auth.reset_password_for_email(
+                        reset_email, 
+                        options={"redirect_to": "https://ai-vision-scanner.onrender.com"}
+                    )
                     st.success("Reset link sent to your email!")
+                     # Cleanly transition view parameters out of the reset interface
+                    st.session_state.reset_mode = False
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
-            if st.button("Back"):
-                st.session_state.reset_mode = False
-                st.rerun()
-                
+                    
     with tab2:
         reg_email = st.text_input("Register Email", key="reg_email")
         reg_password = st.text_input("Register Password", type="password", key="reg_password")
