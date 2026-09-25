@@ -28,40 +28,37 @@ def get_supabase() -> Client:
 supabase = get_supabase()
 
 # ==========================================
-# 🔄 PRODUCTION MAGIC LINK & RECOVERY INTERCEPTOR
+# 🔄 BULLETPROOF NATIVE TOKEN INTERCEPTOR
 # ==========================================
-st.components.v1.html(
-    """
-    <script>
-    const currentUrl = window.parent.location.href;
-    if (currentUrl.includes('#access_token=') || currentUrl.includes('#type=recovery') || currentUrl.includes('#type=magiclink')) {
-        const cleanUrl = currentUrl.replace('#', '?');
-        window.parent.location.href = cleanUrl;
-    }
-    </script>
-    """,
-    height=0,
-)
-
 url_params = st.query_params
-
-raw_referer_url = st.context.headers.get("referer", "")
 inbound_access_token = url_params.get("access_token")
 inbound_refresh_token = url_params.get("refresh_token")
-is_magic_link = url_params.get("type") == "magiclink"
-is_recovery_mode = url_params.get("type") == "recovery" or "type=recovery" in raw_referer_url
+is_recovery_mode = url_params.get("type") == "recovery"
 
-if not inbound_access_token and "#access_token=" in raw_referer_url:
+# NATIVE FALLBACK: Read the raw browser address directly from Render's proxy headers
+# This bypasses the JavaScript delay completely!
+raw_referer_url = st.context.headers.get("referer", "")
+
+if "type=recovery" in raw_referer_url or "#access_token=" in raw_referer_url:
     try:
+        # Extract the hidden fragments right out of the HTTP header string
         parsed_fragment = urllib.parse.urlparse(raw_referer_url).fragment
+        if not parsed_fragment and "#" in raw_referer_url:
+            parsed_fragment = raw_referer_url.split("#")[1]
+            
         fragment_params = urllib.parse.parse_qs(parsed_fragment)
-        inbound_access_token = fragment_params.get("access_token", [None])[0]
-        inbound_refresh_token = fragment_params.get("refresh_token", [None])[0]
-        if "type=recovery" in parsed_fragment:
+        
+        if not inbound_access_token:
+            inbound_access_token = fragment_params.get("access_token", [None])[0]
+        if not inbound_refresh_token:
+            inbound_refresh_token = fragment_params.get("refresh_token", [None])[0]
+        
+        if "type=recovery" in raw_referer_url or fragment_params.get("type", [None])[0] == "recovery":
             is_recovery_mode = True
     except Exception:
         pass
 
+# Handoff Session validation to Supabase if an inbound token is detected
 if inbound_access_token:
     try:
         response = supabase.auth.set_session(inbound_access_token, inbound_refresh_token or "")
@@ -69,10 +66,11 @@ if inbound_access_token:
         
         if is_recovery_mode:
             st.session_state.show_password_update = True
-            st.success("Recovery token validated! Please set your new password below.")
+            st.success("Recovery token validated! Opening password update panel...")
         else:
             st.success("Successfully authenticated!")
         
+        # Clear out URL parameters and reload state natively
         st.query_params.clear()
         if "reset_mode" in st.session_state:
             st.session_state.reset_mode = False
