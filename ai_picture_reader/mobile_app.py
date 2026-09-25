@@ -200,7 +200,8 @@ if st.sidebar.button("Log Out", use_container_width=True):
 # --- PLACE YOUR CORE PROTECTED APPLICATION CODE BELOW HERE ---
 st.info("💡 Drop your functional application tools right here inside this protected workspace frame.")
 
-
+# Track active user properties globally safely AFTER confirming authentication exists
+user_id = st.session_state.user_session.user.id
 # ==========================================
 # 💳 GATEWAY 2: STRIPE PAYWALL GATEKEEPER
 # ==========================================
