@@ -158,7 +158,7 @@ def generate_stripe_checkout(user_id: str):
         cancel_target = f"{config.RENDER_BASE_URL}/"
 
         session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
+            
             line_items=[{'price': stripe_price_id, 'quantity': 1}],
             mode='subscription',
             success_url=success_target,
