@@ -235,21 +235,24 @@
         }
     }
 
-    async function checkUserSubscription(uid) {
-        try {
-            const res = await fetch(`${API_BASE}/billing/checkout?user_id=${uid}`);
-            if (res.status === 403) {
-                showPanel('paywall-panel');
-            } else if (res.ok) {
-                document.getElementById('user-display').textContent = `Logged in: ${localStorage.getItem('user_email') || 'Account'}`;
-                showPanel('app-panel');
-            } else {
-                showPanel('paywall-panel');
-            }
-        } catch {
-            showPanel('paywall-panel');
+   async function checkUserSubscription(userId) {
+    try {
+        // 1. Point directly to your new subscription-status route
+        const response = await fetch(`${API_BASE}/auth/subscription-status?user_id=${userId}`);
+        const data = await response.json();
+        
+        // 2. Evaluate the precise backend boolean flag
+        if (data && data.is_subscribed === true) {
+            showPanel('app-panel'); // Access granted: show premium camera suite
+        } else {
+            showPanel('paywall-panel'); // Access denied: drop them at the paywall
         }
+    } catch (err) {
+        console.error("Subscription verification failed:", err);
+        showPanel('paywall-panel'); // Secure fallback: lock them out if network drops
     }
+}
+
 
     //  CORRECT WAY (Forwards the user to Stripe's secure layout)
 async function redirectToCheckout() {
