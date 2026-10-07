@@ -153,9 +153,14 @@ async def is_premium_user(user_id: str) -> bool:
 def generate_stripe_checkout(user_id: str):
     """Generates a secure checkout link custom mapped to the active user ID"""
     try:
-        # Build the return route pointing back to your direct verification route below
+        # Use your exact absolute GitHub Pages application path
+        frontend_base = "https://chilton3409.github.io/ai_vision_scanner/ai_picture_reader/index.html"
+        
+        # Success target routes through verification first to update Supabase
         success_target = f"{config.RENDER_BASE_URL}/billing/verify?stripe_session_id={{CHECKOUT_SESSION_ID}}&user_id={user_id}"
-        cancel_target = f"{config.RENDER_BASE_URL}/"
+        
+        # Cancel target drops back cleanly to your active camera view
+        cancel_target = frontend_base
 
         session = stripe.checkout.Session.create(
             
