@@ -132,6 +132,34 @@ def update_user_password(access_token: str, new_password: str):
     except Exception as e:
         # If it falls through, look closely at your Render terminal log view outputs for exact tracing
         raise HTTPException(status_code=400, detail=f"Database update engine fault: {str(e)}")
+@app.delete("/auth/delete-account")
+async def delete_user_account(user_id: str):
+    """
+    Permanently revokes any active Stripe subscriptions and completely 
+    purges the user's data record out of the Supabase system databases.
+    """
+    try:
+        # 1. Look up their Stripe Customer ID before deleting the row
+        res = supabase.table("profiles").select("stripe_customer_id").eq("id", user_id).maybe_single().execute()
+        
+        if res.data and res.data.get("stripe_customer_id"):
+            cust_id = res.data["stripe_customer_id"]
+            # Fetch and cancel any active subscription plans on Stripe immediately
+            subscriptions = stripe.Subscription.list(customer=cust_id, status="active")
+            for sub in subscriptions.data:
+                stripe.Subscription.delete(sub.id)
+
+        # 2. Delete user data profile record out of your PostgreSQL table
+        supabase.table("profiles").delete().eq("id", user_id).execute()
+
+        # 3. Request Supabase Auth Admin layer to wipe the global authentication login credentials
+        # NOTE: This requires your service_role key. If using a standard key, we can let them log out locally.
+        supabase.auth.admin.delete_user(user_id)
+
+        return {"success": True, "message": "Account pipeline completely destroyed."}
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Account deletion sequence failure: {str(e)}")
 
 # Helper tool to protect your core scanner routes
 async def is_premium_user(user_id: str) -> bool:
