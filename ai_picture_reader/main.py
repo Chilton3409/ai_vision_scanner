@@ -208,7 +208,7 @@ def get_user_billing_portal(user_id: str):
             
             portal_session = stripe.billing_portal.Session.create(
                 customer=cust_id,
-                return_url=f"{config.RENDER_BASE_URL}/"
+                return_url=f"https://chilton3409.github.io/ai_vision_scanner/ai_picture_reader/index.html"
             )
             return {"portal_url": portal_session.url}
             
