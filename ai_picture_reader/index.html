@@ -73,14 +73,17 @@
         <h2>Access Restricted</h2>
         <p style="color: #94a3b8; margin-bottom: 20px;">A premium membership plan layout is required to activate scanning engine components.</p>
         <button class="btn" onclick="redirectToCheckout()">Upgrade to Premium Now</button>
-        <button class="btn btn-danger" style="margin-top: 8px;" onclick="handleLogout()">Sign Out</button>
+        <!-- Check every 'Sign Out' text or button element and update them to look like this -->
+        <span class="sign-out-link" style="cursor: pointer; font-weight: bold; color: #ef4444;" onclick="handleLogout()">Sign Out</span>
+
     </div>
 
     <!-- PANEL 4: MAIN ACTIVE CAMERA WORKSPACE (PREMIUM SUITE) -->
     <div id="app-panel" class="hidden" style="display: flex; flex-direction: column; gap: 16px;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <span id="user-display" style="font-size:14px; color:#94a3b8;">User: loading...</span>
-            <span style="color:var(--accent); font-size:14px; cursor:pointer; font-weight:bold;" onclick="handleLogout()">Sign Out</span>
+        <!-- Check every 'Sign Out' text or button element and update them to look like this -->
+        <span class="sign-out-link" style="cursor: pointer; font-weight: bold; color: #ef4444;" onclick="handleLogout()">Sign Out</span>
         </div>
         <div class="view-window">
             <video id="webcam" autoplay playsinline></video>
@@ -243,29 +246,28 @@
     //  CORRECT WAY (Forwards the user to Stripe's secure layout)
 async function redirectToCheckout() {
     try {
-        const token = localStorage.getItem('access_token');
+        const userId = localStorage.getItem('user_id');
         
-        const response = await fetch(`${API_BASE}/create-checkout-session`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}` // If your backend tracks users via token
-            }
+        // 1. Call your Render backend endpoint
+        const response = await fetch(`${API_BASE}/create-checkout-session?user_id=${userId}`, {
+            method: 'POST'
         });
 
-        const session = await response.json();
+        // 2. Parse the incoming response data
+        const data = await response.json();
 
-        // Check if the server returned the checkout URL successfully
-        if (session && session.url) {
-            window.location.href = session.url; //  This sends them to Stripe!
+        // 3. FORCE THE REDIRECT: Grab checkout_url and open it!
+        if (data && data.checkout_url) {
+            window.location.href = data.checkout_url; 
         } else {
-            console.error("Stripe Session Data Error:", session);
-            alert("Could not initialize payment session. Check console logs.");
+            console.error("Stripe Session Data Error:", data);
+            alert("Could not load the payment screen. Check console.");
         }
     } catch (err) {
-        console.error("Network Error reaching Stripe API:", err);
+        console.error("Network Error reaching Stripe backend:", err);
     }
 }
+
 
 
     async function submitNewPassword() {
