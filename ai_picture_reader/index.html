@@ -79,11 +79,8 @@
     <!-- PANEL 4: MAIN ACTIVE CAMERA WORKSPACE (PREMIUM SUITE) -->
     <div id="app-panel" class="hidden" style="display: flex; flex-direction: column; gap: 16px;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-            <!-- Change this -->
-        <!-- Update this line in PANEL 4 -->
-        <span id="logout-btn" style="cursor: pointer; font-weight: bold; color: #ef4444;">Sign Out</span>
-
-
+            <span id="user-display" style="font-size:14px; color:#94a3b8;">User: loading...</span>
+            <span style="color:var(--accent); font-size:14px; cursor:pointer; font-weight:bold;" onclick="handleLogout()">Sign Out</span>
         </div>
         <div class="view-window">
             <video id="webcam" autoplay playsinline></video>
@@ -143,25 +140,6 @@
             showPanel('auth-panel');
         }
     });
-    document.addEventListener('DOMContentLoaded', () => {
-    const logoutBtn = document.getElementById('logout-btn');
-
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-
-            try {
-                await supabase.auth.signOut();
-            } catch (err) {
-                console.error("Logout error:", err);
-            } finally {
-                localStorage.clear();
-                sessionStorage.clear();
-                window.location.reload();
-            }
-        });
-    }
-});
 
 
     // --- INTERFACE LAYOUT ROUTER CONTROLLER ---
@@ -341,9 +319,17 @@
         }, 'image/jpeg', 0.9);
     }
 
-
-</script>
-</body>
-</html>
-
+     // --- DROP THIS AT THE VERY BOTTOM OF YOUR SCRIPT TAG ---
+    function handleLogout() {
+        localStorage.clear();
+        sessionStorage.clear(); // Clears temporary session tokens too
+        
+        // Safely stop camera tracks if the function exists
+        if (typeof killCameraHardware === "function") {
+            killCameraHardware();
+        }
+        
+        // Strip parameters and force clean reload back to the login gateway
+        window.location.href = window.location.pathname;
+    }
 </script>
