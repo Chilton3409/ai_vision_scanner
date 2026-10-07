@@ -237,19 +237,27 @@
 
    async function checkUserSubscription(userId) {
     try {
-        // 1. Point directly to your new subscription-status route
+        // 1. Fetch verification status directly from your FastAPI endpoint
         const response = await fetch(`${API_BASE}/auth/subscription-status?user_id=${userId}`);
         const data = await response.json();
         
-        // 2. Evaluate the precise backend boolean flag
         if (data && data.is_subscribed === true) {
-            showPanel('app-panel'); // Access granted: show premium camera suite
+            //  ACCESS CONFIRMED: Safe to mount views and turn on media lenses now!
+            showPanel('app-panel');
+            
+            // Call your camera initialization routine HERE, only after clearance is real
+            if (typeof initializeWebcam === "function") {
+                initializeWebcam();
+            } else if (typeof startCamera === "function") {
+                startCamera();
+            }
         } else {
-            showPanel('paywall-panel'); // Access denied: drop them at the paywall
+            //  ACCESS DENIED: Trap user context completely at the paywall screen
+            showPanel('paywall-panel');
         }
     } catch (err) {
-        console.error("Subscription verification failed:", err);
-        showPanel('paywall-panel'); // Secure fallback: lock them out if network drops
+        console.error("Access verification gateway exception:", err);
+        showPanel('paywall-panel'); // Secure default path
     }
 }
 
