@@ -240,10 +240,33 @@
         }
     }
 
-    function redirectToCheckout() {
-        const uid = localStorage.getItem('user_id');
-        window.location.href = `${API_BASE}/billing/checkout?user_id=${uid}`;
+    //  CORRECT WAY (Forwards the user to Stripe's secure layout)
+async function redirectToCheckout() {
+    try {
+        const token = localStorage.getItem('access_token');
+        
+        const response = await fetch(`${API_BASE}/create-checkout-session`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` // If your backend tracks users via token
+            }
+        });
+
+        const session = await response.json();
+
+        // Check if the server returned the checkout URL successfully
+        if (session && session.url) {
+            window.location.href = session.url; //  This sends them to Stripe!
+        } else {
+            console.error("Stripe Session Data Error:", session);
+            alert("Could not initialize payment session. Check console logs.");
+        }
+    } catch (err) {
+        console.error("Network Error reaching Stripe API:", err);
     }
+}
+
 
     async function submitNewPassword() {
         const token = localStorage.getItem('reset_token');
@@ -321,15 +344,8 @@
 
      // --- DROP THIS AT THE VERY BOTTOM OF YOUR SCRIPT TAG ---
     function handleLogout() {
-        localStorage.clear();
-        sessionStorage.clear(); // Clears temporary session tokens too
-        
-        // Safely stop camera tracks if the function exists
-        if (typeof killCameraHardware === "function") {
-            killCameraHardware();
-        }
-        
-        // Strip parameters and force clean reload back to the login gateway
-        window.location.href = window.location.pathname;
-    }
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = window.location.pathname;
+}
 </script>
