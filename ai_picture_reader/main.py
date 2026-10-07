@@ -152,10 +152,7 @@ async def delete_user_account(user_id: str):
         # 2. Delete user data profile record out of your PostgreSQL table
         supabase.table("profiles").delete().eq("id", user_id).execute()
 
-        # 3. Request Supabase Auth Admin layer to wipe the global authentication login credentials
-        # NOTE: This requires your service_role key. If using a standard key, we can let them log out locally.
-        supabase.auth.admin.delete_user(user_id)
-
+       
         return {"success": True, "message": "Account pipeline completely destroyed."}
         
     except Exception as e:
