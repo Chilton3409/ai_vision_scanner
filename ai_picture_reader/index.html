@@ -84,6 +84,9 @@
             <span id="user-display" style="font-size:14px; color:#94a3b8;">User: loading...</span>
         <!-- Check every 'Sign Out' text or button element and update them to look like this -->
         <span class="sign-out-link" style="cursor: pointer; font-weight: bold; color: #ef4444;" onclick="handleLogout()">Sign Out</span>
+        <!-- Place this right next to or above your workspace logout button in PANEL 4 -->
+        <button id="manage-sub-btn" class="btn" style="background-color: #475569; margin-bottom: 12px;" onclick="redirectToPortal()">⚙️ Manage Subscription</button>
+
         </div>
         <div class="view-window">
             <video id="webcam" autoplay playsinline></video>
@@ -248,23 +251,38 @@ async function redirectToCheckout() {
     try {
         const userId = localStorage.getItem('user_id');
         
-        // 1. Call your Render backend endpoint
-        const response = await fetch(`${API_BASE}/create-checkout-session?user_id=${userId}`, {
-            method: 'POST'
-        });
-
-        // 2. Parse the incoming response data
+        // 1. Call your existing FastAPI checkout endpoint
+        const response = await fetch(`${API_BASE}/billing/checkout?user_id=${userId}`);
         const data = await response.json();
 
-        // 3. FORCE THE REDIRECT: Grab checkout_url and open it!
+        // 2. Safely capture the target checkout_url parameter and push the window forward
         if (data && data.checkout_url) {
             window.location.href = data.checkout_url; 
         } else {
-            console.error("Stripe Session Data Error:", data);
-            alert("Could not load the payment screen. Check console.");
+            console.error("Stripe Data Error:", data);
+            alert("Could not load checkout. Check your developer console.");
         }
     } catch (err) {
-        console.error("Network Error reaching Stripe backend:", err);
+        console.error("Network Exception connecting to Stripe:", err);
+    }
+}
+async function redirectToPortal() {
+    try {
+        const userId = localStorage.getItem('user_id');
+        
+        // 1. Call your existing FastAPI billing portal endpoint
+        const response = await fetch(`${API_BASE}/billing/portal?user_id=${userId}`);
+        const data = await response.json();
+
+        // 2. Capture the returned portal_url string and forward the user to Stripe's panel
+        if (data && data.portal_url) {
+            window.location.href = data.portal_url;
+        } else {
+            console.error("Stripe Portal Error:", data);
+            alert("Could not load subscription panel. Verify your active account status.");
+        }
+    } catch (err) {
+        console.error("Network Exception connecting to billing settings:", err);
     }
 }
 
