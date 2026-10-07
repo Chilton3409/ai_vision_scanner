@@ -177,26 +177,21 @@ def generate_stripe_checkout(user_id: str):
 
 @app.get("/billing/verify")
 def verify_stripe_payment(stripe_session_id: str, user_id: str):
-    """
-    Your manual verification loop. Intercepts incoming session tokens,
-    validates payment with Stripe, and upserts your database row.
-    """
     try:
-        # Retrieve the transaction details straight from the Stripe API
         stripe_session = stripe.checkout.Session.retrieve(stripe_session_id)
         
         if stripe_session.payment_status == "paid":
             cust_id = stripe_session.customer
             
-            # Record both active premium clearance and the Customer ID in your profile row
             supabase.table("profiles").upsert({
                 "id": user_id, 
                 "is_subscribed": True,
                 "stripe_customer_id": cust_id
             }).execute()
             
-            # Smoothly redirect the user back to the application homepage after saving
-            return RedirectResponse(url="/?payment=confirmed")
+            #  FIX: Redirects back to the exact index path with confirmation flags
+            target_url = "https://chilton3409.github.io/ai_vision_scanner/ai_picture_reader/index.html"
+            return RedirectResponse(url=target_url)
             
         raise HTTPException(status_code=400, detail="Transaction not completed successfully.")
     except Exception as e:
