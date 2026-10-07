@@ -394,7 +394,7 @@ async function redirectToPortal() {
     sessionStorage.clear();
     window.location.href = window.location.pathname;
 }
-window.confirmDeleteAccount = async function() {
+async function confirmDeleteAccount() {
     const confirmation = confirm("WARNING: Are you absolutely sure you want to permanently delete your account? This will immediately cancel your subscription and wipe all tracking logs permanently. This cannot be undone.");
     
     if (!confirmation) return; // User opted out
