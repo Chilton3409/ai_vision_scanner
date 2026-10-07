@@ -424,5 +424,6 @@ async function confirmDeleteAccount() {
         console.error("Network Exception during active deletion loop:", err);
     }
 };
-
+// 💡 ADD THIS EXACT LINE HERE to expose your function to the HTML onclick handler!
+window.confirmDeleteAccount = confirmDeleteAccount;
 </script>
