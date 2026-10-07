@@ -144,6 +144,14 @@ async def is_premium_user(user_id: str) -> bool:
         pass
     return False
 
+@app.get("/auth/subscription-status")
+async def get_subscription_status(user_id: str):
+    """
+    Explicitly queries the database using our is_premium_user helper
+    to return a clear True/False access flag to the frontend.
+    """
+    is_premium = await is_premium_user(user_id)
+    return {"is_subscribed": is_premium}
 
 # ==========================================
 # 💳 DIRECT PAYMENT MANAGEMENT ROUTES
