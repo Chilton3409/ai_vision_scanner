@@ -78,16 +78,21 @@
 
     </div>
 
-    <!-- PANEL 4: MAIN ACTIVE CAMERA WORKSPACE (PREMIUM SUITE) -->
+       <!-- PANEL 4: MAIN ACTIVE CAMERA WORKSPACE (PREMIUM SUITE) -->
     <div id="app-panel" class="hidden" style="display: flex; flex-direction: column; gap: 16px;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
+            
+            <!-- Left Side: Displays the current session profile user email -->
             <span id="user-display" style="font-size:14px; color:#94a3b8;">User: loading...</span>
-        <!-- Check every 'Sign Out' text or button element and update them to look like this -->
-        <span class="sign-out-link" style="cursor: pointer; font-weight: bold; color: #ef4444;" onclick="handleLogout()">Sign Out</span>
-        <!-- Place this right next to or above your workspace logout button in PANEL 4 -->
-        <button id="manage-sub-btn" class="btn" style="background-color: #475569; margin-bottom: 12px;" onclick="redirectToPortal()">⚙️ Manage Subscription</button>
+            
+            <!-- Right Side: Clean action items grouped neatly together -->
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <button id="manage-sub-btn" class="btn" style="background-color: #475569; padding: 6px 12px; font-size: 14px; width: auto; margin: 0;" onclick="redirectToPortal()">⚙️ Manage Subscription</button>
+                <span class="sign-out-link" style="cursor: pointer; font-weight: bold; color: #ef4444;" onclick="handleLogout()">Sign Out</span>
+            </div>
 
         </div>
+
         <div class="view-window">
             <video id="webcam" autoplay playsinline></video>
             <canvas id="capture-canvas"></canvas>
