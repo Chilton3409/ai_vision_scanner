@@ -90,6 +90,11 @@
                 <button id="manage-sub-btn" class="btn" style="background-color: #475569; padding: 6px 12px; font-size: 14px; width: auto; margin: 0;" onclick="redirectToPortal()">⚙️ Manage Subscription</button>
                 <span class="sign-out-link" style="cursor: pointer; font-weight: bold; color: #ef4444;" onclick="handleLogout()">Sign Out</span>
             </div>
+            <!-- Place this at the very bottom of PANEL 4 inside your app layout -->
+            <div style="margin-top: 32px; border-top: 1px solid #334155; padding-top: 16px; text-align: center;">
+                <p style="color: #64748b; font-size: 13px; margin-bottom: 8px;">No longer need scanner components?</p>
+                <button id="delete-account-btn" class="btn btn-danger" style="padding: 8px 16px; font-size: 14px; width: auto; margin: 0 auto;" onclick="confirmDeleteAccount()">⚠️ Permanently Delete Account</button>
+            </div>
 
         </div>
 
@@ -384,4 +389,35 @@ async function redirectToPortal() {
     sessionStorage.clear();
     window.location.href = window.location.pathname;
 }
+window.confirmDeleteAccount = async function() {
+    const confirmation = confirm("WARNING: Are you absolutely sure you want to permanently delete your account? This will immediately cancel your subscription and wipe all tracking logs permanently. This cannot be undone.");
+    
+    if (!confirmation) return; // User opted out
+    
+    try {
+        const userId = localStorage.getItem('user_id');
+        
+        // 1. Fire the deletion method call to your FastAPI server
+        const response = await fetch(`${API_BASE}/auth/delete-account?user_id=${userId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data && data.success) {
+            alert("Your account and billing subscriptions have been successfully wiped clean.");
+            
+            // 2. Clear out all local browser cookie storage and force a full reload back to gateway
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.href = window.location.pathname;
+        } else {
+            console.error("Deletion error feedback:", data);
+            alert("Account removal failed. Contact support framework systems.");
+        }
+    } catch (err) {
+        console.error("Network Exception during active deletion loop:", err);
+    }
+};
+
 </script>
