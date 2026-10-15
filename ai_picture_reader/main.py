@@ -281,7 +281,7 @@ async def process_image_problem(
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'),
                 """
-                Identify the core problem in the image instantly. 
+                Solve the core problem in the image instantly. 
                 Analyze the question, formula, or problem visible in this image.
                 Do not include intro, pleasantries, or explanation of logic. 
                 Provide your response in EXACTLY the following format:
