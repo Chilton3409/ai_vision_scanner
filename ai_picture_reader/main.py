@@ -281,12 +281,12 @@ async def process_image_problem(
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'),
                 """
-                You are a premium, direct technical problem solver. 
+                Identify the core problem in the image instantly. 
                 Analyze the question, formula, or problem visible in this image.
-                
+                Do not include intro, pleasantries, or explanation of logic. 
                 Provide your response in EXACTLY the following format:
                 ---VISUAL_START---
-                [Provide a clear, brief, incremental step-by-step solution path using markdown format here.]
+                [Provide the solution in a maximum of two concise sentences.]
                 ---VISUAL_END---
                 ---SPOKEN_START---
                 [Provide the exact same solution, but written exclusively for an audio reader. 
